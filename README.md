@@ -1,9 +1,3 @@
-Perfeito, Carlos 👌
-Aqui está um **README completo e organizado** documentando **todas as rotas**, **payloads** e **respostas esperadas** do seu backend Flask de autenticação e gerenciamento de usuários do projeto **UNIVC – Auth Service**.
-Ele segue um formato claro de API reference, pronto pra colocar no repositório (ex: `README.md`).
-
----
-
 # 🧭 UNIVC — API de Autenticação e Usuários
 
 Serviço de autenticação e controle de usuários com suporte a:
@@ -12,6 +6,10 @@ Serviço de autenticação e controle de usuários com suporte a:
 * Login com JWT
 * Renovação de tokens
 * Consulta e atualização de perfil
+
+---
+url: https://apiunivc.carlosp.dev
+---
 
 ---
 
