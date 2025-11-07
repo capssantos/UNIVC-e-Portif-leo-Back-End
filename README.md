@@ -128,6 +128,102 @@ Content-Type: application/json
 
 ---
 
+## 🖼️ **Upload de Imagem de Perfil**
+
+`POST /users/me/avatar`
+Realiza o **upload da imagem de perfil** do usuário autenticado para o **DigitalOcean Spaces**
+e retorna apenas a **URL pública** da imagem.
+Essa rota **não altera o banco de dados** — o link deve ser usado posteriormente (por exemplo, no `step2`).
+
+---
+
+### 🔐 Headers
+
+```http
+Authorization: Bearer <access_token>
+Content-Type: multipart/form-data
+```
+
+---
+
+### 🧩 Campos do FormData
+
+| Campo    | Tipo    | Obrigatório | Descrição                       |
+| -------- | ------- | ----------- | ------------------------------- |
+| `imagem` | arquivo | ✅           | Arquivo de imagem a ser enviado |
+
+---
+
+### 🧾 Exemplo de Requisição
+
+#### ✅ cURL
+
+```bash
+curl -X POST https://apiunivc.carlosp.dev/users/me/avatar \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIs..." \
+  -F "imagem=@/caminho/para/avatar.png"
+```
+
+#### ✅ JavaScript (fetch)
+
+```js
+const form = new FormData();
+form.append("imagem", fileInput.files[0]);
+
+const res = await fetch("https://apiunivc.carlosp.dev/users/me/avatar", {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${accessToken}`,
+  },
+  body: form,
+});
+
+const data = await res.json();
+console.log("URL pública:", data.url);
+```
+
+---
+
+### 📤 Response (200)
+
+```json
+{
+  "message": "upload_ok",
+  "url": "https://onicode.nyc3.digitaloceanspaces.com/UNIVC/e-Portifoleo/2025/11/07/1f9a4b8c7d8145f99ab72d9b6e67d0b7.png"
+}
+```
+
+---
+
+### ⚠️ Possíveis Erros
+
+| Código | Motivo                                    |
+| ------ | ----------------------------------------- |
+| 400    | `Content-Type` incorreto ou arquivo vazio |
+| 400    | Campo `imagem` ausente                    |
+| 401    | Token ausente ou inválido                 |
+| 500    | Falha no upload para DigitalOcean Spaces  |
+
+---
+
+### 🧱 Fluxo sugerido
+
+```mermaid
+sequenceDiagram
+    participant U as Usuário
+    participant API as UNIVC API
+    participant DO as DigitalOcean Spaces
+
+    U->>API: POST /users/me/avatar<br>(imagem)
+    API->>DO: upload arquivo
+    DO-->>API: URL pública
+    API-->>U: { "url": "<link_publico>" }
+
+    Note right of U: Usa o link retornado<br>no step2:<br>"imagem": "<url>"
+```
+
+---
+
 ## 3️⃣ **Login**
 
 `POST /auth/login`

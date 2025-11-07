@@ -6,10 +6,29 @@ from ..models.db import one, run
 from ..models.crypto import hash_password, check_password
 from ..models.jwt_manager import create_token_pair, refresh_tokens, revoke_token
 from ..models.auth import require_auth
+from ..models.digitalocean import DigitalOceanSpacesUploader
 from datetime import datetime
+from werkzeug.utils import secure_filename
 
 load_dotenv()
 user_bp = Blueprint("user", __name__)
+
+DO_SPACES_KEY = os.getenv("DO_SPACES_KEY")
+DO_SPACES_SECRET = os.getenv("DO_SPACES_SECRET")
+DO_BUCKET = os.getenv("DO_SPACES_BUCKET", "onicode")
+DO_REGION = os.getenv("DO_SPACES_REGION", "nyc3")
+DO_ENDPOINT = os.getenv("DO_SPACES_ENDPOINT", "https://nyc3.digitaloceanspaces.com")
+DO_CDN_BASE = os.getenv("DO_SPACES_CDN_BASE", "https://onicode.nyc3.digitaloceanspaces.com")
+
+uploader = DigitalOceanSpacesUploader(
+    access_key=DO_SPACES_KEY,
+    secret_key=DO_SPACES_SECRET,
+    bucket=DO_BUCKET,
+    region=DO_REGION,
+    endpoint=DO_ENDPOINT,
+    cdn_base=DO_CDN_BASE,
+    public_read=True,  # deixe True se o bucket for público
+)
 
 def _parse_date(value):
     if not value:
@@ -174,6 +193,59 @@ def register_step2():
     return jsonify({
         "message": "cadastro_complementar_ok",
         "user": row
+    }), 200
+
+@user_bp.post("/users/me/avatar")
+@require_auth
+def upload_avatar():
+    """
+    Upload de imagem para DigitalOcean Spaces.
+
+    - Requer autenticação (Bearer <access_token>)
+    - Espera multipart/form-data com:
+        - imagem: arquivo de imagem
+
+    Retorna:
+        200 + { "url": "<url_publica_da_imagem>" }
+
+    Não altera dados no banco.
+    """
+
+    # Confere auth
+    user_id = getattr(g, "user_id", None)
+    if not user_id:
+        return jsonify({"error": "nenhum usuário autenticado"}), 401
+
+    # Confere Content-Type
+    content_type = request.content_type or ""
+    if "multipart/form-data" not in content_type:
+        return jsonify({"error": "Content-Type deve ser multipart/form-data"}), 400
+
+    file = request.files.get("imagem")
+    if not file:
+        return jsonify({"error": "campo 'imagem' é obrigatório"}), 400
+
+    filename = secure_filename(file.filename) if file.filename else "avatar"
+    file_bytes = file.read()
+
+    if not file_bytes:
+        return jsonify({"error": "arquivo de imagem vazio"}), 400
+
+    try:
+        # usa o helper do uploader para gerar key e URL pública
+        _, public_url = uploader.upload_file_to_path(
+            base_path="UNIVC/e-Portifoleo",
+            file_bytes=file_bytes,
+            filename_hint=filename,
+        )
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception:
+        return jsonify({"error": "erro ao fazer upload da imagem"}), 500
+
+    return jsonify({
+        "message": "upload_ok",
+        "url": public_url
     }), 200
 
 
