@@ -384,6 +384,134 @@ Content-Type: application/json
 }
 ```
 
+🧩 1️⃣ Criar curso (POST /api/cursos/)
+➡️ Requisição
+```json
+{
+  "nome": "Técnico em Desenvolvimento de Sistemas",
+  "descricao": "Curso focado em programação, banco de dados e engenharia de software."
+}
+```
+
+⬅️ Resposta (201)
+```json
+{
+  "message": "Curso criado com sucesso",
+  "curso": {
+    "id_curso": "b7b9a7a8-3e21-4a2e-9b31-2ed73ffb6f4a",
+    "nome": "Técnico em Desenvolvimento de Sistemas",
+    "descricao": "Curso focado em programação, banco de dados e engenharia de software.",
+    "habilitado": true
+  }
+}
+```
+
+📋 2️⃣ Listar cursos habilitados (GET /api/cursos/)
+➡️ Requisição
+
+Sem corpo (GET puro)
+
+⬅️ Resposta (200)
+```json
+[
+  {
+    "id_curso": "b7b9a7a8-3e21-4a2e-9b31-2ed73ffb6f4a",
+    "nome": "Técnico em Desenvolvimento de Sistemas",
+    "descricao": "Curso focado em programação, banco de dados e engenharia de software.",
+    "habilitado": true,
+    "created_at": "2025-11-12T15:00:00"
+  },
+  {
+    "id_curso": "e9f7a123-6cda-4e22-b64e-8c7652e4a9d1",
+    "nome": "Redes de Computadores",
+    "descricao": "Configuração e manutenção de redes TCP/IP.",
+    "habilitado": true,
+    "created_at": "2025-11-11T18:00:00"
+  }
+]
+```
+
+🔍 3️⃣ Obter curso por ID (GET /api/cursos/<id_curso>)
+➡️ Requisição
+
+Sem corpo
+Exemplo:
+GET /api/cursos/b7b9a7a8-3e21-4a2e-9b31-2ed73ffb6f4a
+
+⬅️ Resposta (200)
+```json
+{
+  "id_curso": "b7b9a7a8-3e21-4a2e-9b31-2ed73ffb6f4a",
+  "nome": "Técnico em Desenvolvimento de Sistemas",
+  "descricao": "Curso focado em programação, banco de dados e engenharia de software.",
+  "habilitado": true,
+  "created_at": "2025-11-12T15:00:00",
+  "updated_at": null
+}
+```
+
+✏️ 4️⃣ Atualizar curso (PUT /api/cursos/<id_curso>)
+➡️ Requisição
+```json
+{
+  "nome": "Técnico em Desenvolvimento de Sistemas - Atualizado",
+  "descricao": "Inclui novas tecnologias como IA generativa e IoT."
+}
+```
+
+⬅️ Resposta (200)
+```json
+{
+  "message": "Curso atualizado com sucesso"
+}
+```
+
+🚫 5️⃣ Desabilitar curso (PUT /api/cursos/<id_curso>/disable)
+➡️ Requisição
+
+Sem corpo
+
+⬅️ Resposta (200)
+```json
+{
+  "message": "Curso desabilitado com sucesso"
+}
+```
+
+Se o curso já estiver desabilitado:
+```json
+{
+  "message": "Curso já está desabilitado"
+}
+```
+
+✅ 6️⃣ Reabilitar curso (PUT /api/cursos/<id_curso>/enable)
+➡️ Requisição
+
+Sem corpo
+```json
+⬅️ Resposta (200)
+{
+  "message": "Curso habilitado com sucesso"
+}
+```
+
+
+Se o curso já estiver habilitado:
+```json
+{
+  "message": "Curso já está habilitado"
+}
+```
+
+⚠️ 7️⃣ Erros comuns
+| Situação                  | Status | Exemplo de resposta                           |
+| ------------------------- | ------ | --------------------------------------------- |
+| Campo obrigatório ausente | `400`  | `{ "error": "O campo 'nome' é obrigatório" }` |
+| Curso inexistente         | `404`  | `{ "error": "Curso não encontrado" }`         |
+| Erro interno              | `500`  | `{ "error": "mensagem detalhada" }`           |
+
+
 ---
 
 # ⚠️ Códigos de Erro Comuns
