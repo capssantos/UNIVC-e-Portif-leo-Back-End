@@ -384,7 +384,7 @@ Content-Type: application/json
 }
 ```
 
-🧩 1️⃣ Criar curso (POST /api/cursos/)
+🧩 1️⃣ Criar curso (POST /cursos/)
 ➡️ Requisição
 ```json
 {
@@ -406,7 +406,7 @@ Content-Type: application/json
 }
 ```
 
-📋 2️⃣ Listar cursos habilitados (GET /api/cursos/)
+📋 2️⃣ Listar cursos habilitados (GET /cursos/)
 ➡️ Requisição
 
 Sem corpo (GET puro)
@@ -431,12 +431,12 @@ Sem corpo (GET puro)
 ]
 ```
 
-🔍 3️⃣ Obter curso por ID (GET /api/cursos/<id_curso>)
+🔍 3️⃣ Obter curso por ID (GET /cursos/<id_curso>)
 ➡️ Requisição
 
 Sem corpo
 Exemplo:
-GET /api/cursos/b7b9a7a8-3e21-4a2e-9b31-2ed73ffb6f4a
+GET /cursos/b7b9a7a8-3e21-4a2e-9b31-2ed73ffb6f4a
 
 ⬅️ Resposta (200)
 ```json
@@ -450,7 +450,7 @@ GET /api/cursos/b7b9a7a8-3e21-4a2e-9b31-2ed73ffb6f4a
 }
 ```
 
-✏️ 4️⃣ Atualizar curso (PUT /api/cursos/<id_curso>)
+✏️ 4️⃣ Atualizar curso (PUT /cursos/<id_curso>)
 ➡️ Requisição
 ```json
 {
@@ -466,7 +466,7 @@ GET /api/cursos/b7b9a7a8-3e21-4a2e-9b31-2ed73ffb6f4a
 }
 ```
 
-🚫 5️⃣ Desabilitar curso (PUT /api/cursos/<id_curso>/disable)
+🚫 5️⃣ Desabilitar curso (PUT /cursos/<id_curso>/disable)
 ➡️ Requisição
 
 Sem corpo
@@ -485,7 +485,7 @@ Se o curso já estiver desabilitado:
 }
 ```
 
-✅ 6️⃣ Reabilitar curso (PUT /api/cursos/<id_curso>/enable)
+✅ 6️⃣ Reabilitar curso (PUT /cursos/<id_curso>/enable)
 ➡️ Requisição
 
 Sem corpo
