@@ -687,5 +687,12 @@ def get_me():
 
     if not row:
         return jsonify({"error": "usuário não encontrado"}), 404
+  
+    if row.get("data_nascimento"):
+        data = row["data_nascimento"]
+        # Converte "Mon, 24 Jan 2000 00:00:00 GMT" → datetime
+        dt = datetime.strptime(data, "%a, %d %b %Y %H:%M:%S %Z")
+        # Formata para AAAA-MM-DD
+        row["data_nascimento"] = dt.strftime("%Y-%m-%d")
 
     return jsonify({"user": row}), 200
