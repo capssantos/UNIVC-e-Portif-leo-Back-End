@@ -304,9 +304,23 @@ def register_step2():
         UPDATE usuarios
            SET {", ".join(set_parts)}
          WHERE id_usuario = %(uid)s
-     RETURNING id_usuario, nome, email, contato, curso, periodo,
-               ano_inicio, ano_fim, data_nascimento, imagem,
-               created_at, updated_at, last_signed, new, habilitado, validacao
+        RETURNING
+            id_usuario,
+            nome,
+            email,
+            contato,
+            curso,
+            periodo,
+            ano_inicio,
+            ano_fim,
+            TO_CHAR(data_nascimento, 'YYYY-MM-DD') AS data_nascimento,
+            imagem,
+            created_at,
+            updated_at,
+            last_signed,
+            new,
+            habilitado,
+            validacao
     """
 
     row = run(sql, params)
@@ -671,7 +685,7 @@ def get_me():
             periodo,
             ano_inicio,
             ano_fim,
-            data_nascimento,
+            TO_CHAR(data_nascimento, 'YYYY-MM-DD') AS data_nascimento,
             imagem,
             created_at,
             updated_at,
@@ -687,12 +701,5 @@ def get_me():
 
     if not row:
         return jsonify({"error": "usuário não encontrado"}), 404
-  
-    if row.get("data_nascimento"):
-        data = row["data_nascimento"]
-        # Converte "Mon, 24 Jan 2000 00:00:00 GMT" → datetime
-        dt = datetime.strptime(data, "%a, %d %b %Y %H:%M:%S %Z")
-        # Formata para AAAA-MM-DD
-        row["data_nascimento"] = dt.strftime("%Y-%m-%d")
 
     return jsonify({"user": row}), 200
