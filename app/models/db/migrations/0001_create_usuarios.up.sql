@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS usuarios (
     created_at       TIMESTAMP DEFAULT NOW(),
     updated_at       TIMESTAMP,
     last_signed      TIMESTAMP,
-    premissao        VARCHAR(255),
+    permissao        VARCHAR(255) NOT NULL DEFAULT 'ALUNO',
     new              BOOLEAN NOT NULL DEFAULT TRUE,
     habilitado       BOOLEAN NOT NULL DEFAULT TRUE,
     validacao        BOOLEAN NOT NULL DEFAULT FALSE,

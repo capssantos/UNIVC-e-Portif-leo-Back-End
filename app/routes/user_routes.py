@@ -39,9 +39,76 @@ def _parse_date(value):
         raise ValueError("data_nascimento inválida; use 'YYYY-MM-DD'")
 
 # ---------- Usuários ----------
+
 @user_bp.post("/auth/register/step1")
 def register_step1():
+    """
+    Registro de usuário - etapa 1
+
+    Cria o usuário básico com nome, email, contato e senha, e já retorna
+    um par de tokens (access e refresh) para uso imediato.
+
+    ---
+    tags:
+      - Auth
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - nome
+            - email
+            - contato
+            - password
+          properties:
+            nome:
+              type: string
+            email:
+              type: string
+            contato:
+              type: string
+            password:
+              type: string
+    responses:
+      201:
+        description: Usuário criado com sucesso
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "ok"
+            user_id:
+              type: string
+            new:
+              type: boolean
+            habilitado:
+              type: boolean
+            validacao:
+              type: boolean
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+            token_type:
+              type: string
+              example: "Bearer"
+      400:
+        description: Dados obrigatórios ausentes
+      409:
+        description: Email já cadastrado
+    """
+    headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
+    print(f"[STEP1 ] - Headers: {headers_dict}")
+    print(f"[STEP1 ] - Body: {data}")
+    
     nome    = data.get("nome")
     email   = data.get("email")
     contato = data.get("contato")
@@ -95,10 +162,70 @@ def register_step1():
         "token_type": "Bearer"
     }), 201
 
+
 @user_bp.post("/auth/register/step2")
 @require_auth  # se ainda não tiver JWT pronto, pode remover temporariamente
 def register_step2():
+    """
+    Registro de usuário - etapa 2
+
+    Completa o cadastro do usuário já criado na etapa 1, preenchendo
+    dados adicionais como curso, período, anos e data de nascimento.
+
+    Requer autenticação via Bearer token.
+
+    ---
+    tags:
+      - Auth
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            user_id:
+              type: string
+              description: "Opcional se já estiver autenticado; caso contrário pode ser informado aqui"
+            nome:
+              type: string
+            curso:
+              type: string
+            periodo:
+              type: string
+            ano_inicio:
+              type: integer
+            ano_fim:
+              type: integer
+            data_nascimento:
+              type: string
+              format: date
+              example: "2000-01-15"
+            contato:
+              type: string
+            email:
+              type: string
+            imagem:
+              type: string
+    responses:
+      200:
+        description: Cadastro complementar atualizado com sucesso
+      400:
+        description: Erro de validação ou dados faltando
+      404:
+        description: Usuário não encontrado
+      409:
+        description: Email já cadastrado
+    """
+
+    headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
+    print(f"[STEP2 ] - Headers: {headers_dict}")
+    print(f"[STEP2 ] - Body: {data}")
 
     # Identifica o usuário
     user_id = getattr(g, "user_id", None) or data.get("user_id")
@@ -194,22 +321,60 @@ def register_step2():
         "user": row
     }), 200
 
+
 @user_bp.post("/users/me/avatar")
 @require_auth
 def upload_avatar():
     """
-    Upload de imagem para DigitalOcean Spaces.
+    Upload de avatar do usuário
 
-    - Requer autenticação (Bearer <access_token>)
-    - Espera multipart/form-data com:
-        - imagem: arquivo de imagem
+    Envia uma imagem via multipart/form-data e retorna a URL pública
+    no DigitalOcean Spaces. Não altera dados no banco.
 
-    Retorna:
-        200 + { "url": "<url_publica_da_imagem>" }
+    Requer autenticação via Bearer token.
 
-    Não altera dados no banco.
+    ---
+    tags:
+      - Upload
+    security:
+      - Bearer: []
+    consumes:
+      - multipart/form-data
+    produces:
+      - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato: Bearer <token>"
+      - in: formData
+        name: imagem
+        type: file
+        required: true
+        description: "Arquivo de imagem do avatar"
+    responses:
+      200:
+        description: Upload realizado com sucesso
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "upload_ok"
+            url:
+              type: string
+              description: "URL pública da imagem"
+      400:
+        description: Erro de validação ou arquivo inválido
+      401:
+        description: Usuário não autenticado
+      500:
+        description: Erro interno ao fazer upload
     """
-
+    headers_dict = dict(request.headers)
+    print(f"[AVATAR] - Headers: {headers_dict}")
+    
     # Confere auth
     user_id = getattr(g, "user_id", None)
     if not user_id:
@@ -225,6 +390,7 @@ def upload_avatar():
         return jsonify({"error": "campo 'imagem' é obrigatório"}), 400
 
     filename = secure_filename(file.filename) if file.filename else "avatar"
+    print(f"[AVATAR] - Finename: {filename}")
     file_bytes = file.read()
 
     if not file_bytes:
@@ -250,23 +416,73 @@ def upload_avatar():
 
 @user_bp.post("/auth/login")
 def login():
+    """
+    Login de usuário
+
+    Valida email e senha, e retorna um par de tokens JWT
+    (access_token e refresh_token) para uso na autenticação.
+
+    ---
+    tags:
+      - Auth
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - email
+            - password
+          properties:
+            email:
+              type: string
+            password:
+              type: string
+    responses:
+      200:
+        description: Login realizado com sucesso
+    """
+    headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
+    print(f"[LOGIN ] - Headers: {headers_dict}")
+    print(f"[LOGIN ] - Body: {data}")
+
     email = data.get("email")
     password = data.get("password")
+
     if not email or not password:
         return jsonify({"error": "email e password são obrigatórios"}), 400
 
-    user = one("SELECT id_usuario, password, habilitado, validacao FROM usuarios WHERE email=%(e)s", {"e": email})
-    if not user or not user["habilitado"]: # or not user["validacao"]:
+    user = one("""
+        SELECT id_usuario, password, habilitado, validacao
+        FROM usuarios
+        WHERE email = %(e)s
+    """, {"e": email})
+
+    if not user or not user["habilitado"]:
         return jsonify({"error": "usuário inválido ou desabilitado"}), 401
 
     if not check_password(password, user["password"]):
         return jsonify({"error": "credenciais inválidas"}), 401
 
+    # Atualiza o last_signed do usuário
+    run("""
+        UPDATE usuarios
+        SET last_signed = NOW(), updated_at = NOW()
+        WHERE id_usuario = %(id)s
+    """, {"id": user["id_usuario"]})
+
+    # Coleta informações de contexto
     ip  = request.headers.get("X-Forwarded-For", request.remote_addr)
     ua  = request.headers.get("User-Agent", "")
     sid = str(uuid.uuid4())
 
+    # Gera os tokens JWT
     access, refresh = create_token_pair(
         user_id=str(user["id_usuario"]),
         session_id=sid,
@@ -274,24 +490,123 @@ def login():
         ip=ip,
         user_agent=ua
     )
-    return jsonify({"access_token": access, "refresh_token": refresh, "token_type": "Bearer"}), 200
+
+    return jsonify({
+        "access_token": access,
+        "refresh_token": refresh,
+        "token_type": "Bearer"
+    }), 200
+
+
 
 @user_bp.post("/auth/refresh")
 def refresh():
+    """
+    Refresh de token
+
+    Recebe um refresh_token válido e retorna um novo par de tokens
+    (access_token e refresh_token).
+
+    ---
+    tags:
+      - Auth
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - refresh_token
+          properties:
+            refresh_token:
+              type: string
+    responses:
+      200:
+        description: Tokens renovados com sucesso
+        schema:
+          type: object
+          properties:
+            access_token:
+              type: string
+            refresh_token:
+              type: string
+            token_type:
+              type: string
+              example: "Bearer"
+      400:
+        description: refresh_token não informado
+      401:
+        description: Refresh inválido
+    """
+
+    headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
+    print(f"[LOGIN ] - Headers: {headers_dict}")
+    print(f"[LOGIN ] - Body: {data}")
+
     token = data.get("refresh_token")
     if not token:
         return jsonify({"error": "refresh_token obrigatório"}), 400
     ip  = request.headers.get("X-Forwarded-For", request.remote_addr)
     ua  = request.headers.get("User-Agent", "")
     try:
-        access, refresh = refresh_tokens(token, ip=ip, user_agent=ua)
-        return jsonify({"access_token": access, "refresh_token": refresh, "token_type": "Bearer"}), 200
+        access, refresh_tok = refresh_tokens(token, ip=ip, user_agent=ua)
+        return jsonify({"access_token": access, "refresh_token": refresh_tok, "token_type": "Bearer"}), 200
     except Exception as e:
         return jsonify({"error": "refresh inválido", "detail": str(e)}), 401
 
+
 @user_bp.post("/auth/logout")
 def logout():
+    """
+    Logout
+
+    Revoga um token (access ou refresh). O token pode ser enviado no
+    body ou no header Authorization.
+
+    ---
+    tags:
+      - Auth
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: false
+        description: "Bearer <token>"
+        type: string
+      - in: body
+        name: body
+        required: false
+        schema:
+          type: object
+          properties:
+            token:
+              type: string
+              description: "Token a ser revogado"
+    responses:
+      200:
+        description: Token revogado com sucesso
+        schema:
+          type: object
+          properties:
+            revoked:
+              type: boolean
+      400:
+        description: Token não informado ou falha ao revogar
+    """
+    headers_dict = dict(request.headers)
+    data = request.get_json(force=True, silent=True) or {}
+    print(f"[LOGOUT] - Headers: {headers_dict}")
+    print(f"[LOGOUT] - Body: {data}")
+
     # aceita access OU refresh, e revoga
     token = (request.get_json(silent=True) or {}).get("token") or \
             request.headers.get("Authorization", "").replace("Bearer ", "")
@@ -300,11 +615,50 @@ def logout():
     ok = revoke_token(token, reason="logout")
     return jsonify({"revoked": ok}), 200 if ok else 400
 
+
 # ---------- Rota protegida ----------
+
 @user_bp.get("/users/me")
 @require_auth
 def get_me():
+    """
+    Dados do usuário logado
+
+    Retorna os dados completos do usuário autenticado a partir do
+    token JWT enviado no header Authorization.
+
+    ---
+    tags:
+      - Users
+    security:
+      - Bearer: []
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato: Bearer <token>"
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Dados do usuário retornados com sucesso
+        schema:
+          type: object
+          properties:
+            user:
+              type: object
+      401:
+        description: Usuário não autenticado
+      404:
+        description: Usuário não encontrado
+    """
+    headers_dict = dict(request.headers)
+    print(f"[ME    ] - Headers: {headers_dict}")
+
     user_id = g.user_id
+    print(f"[ME    ] - USER_ID: {user_id}")
+
 
     row = one(
         """
@@ -335,5 +689,3 @@ def get_me():
         return jsonify({"error": "usuário não encontrado"}), 404
 
     return jsonify({"user": row}), 200
-
-
