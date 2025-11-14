@@ -177,7 +177,6 @@ def register_step2():
         UPDATE usuarios
            SET {", ".join(set_parts)}
          WHERE id_usuario = %(uid)s
-           AND new = TRUE          -- garante que é step2 de pré-cadastro
      RETURNING id_usuario, nome, email, contato, curso, periodo,
                ano_inicio, ano_fim, data_nascimento, imagem,
                created_at, updated_at, last_signed, new, habilitado, validacao
