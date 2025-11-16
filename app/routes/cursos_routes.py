@@ -356,17 +356,27 @@ def disable_curso(id_curso):
     if not _is_admin():
         return jsonify({"error": "acesso restrito a administradores"}), 403
 
-    curso = one("SELECT habilitado FROM cursos WHERE id_curso = %(id)s", {"id": id_curso})
+    # Sempre string na query
+    id_str = str(id_curso)
+
+    curso = one(
+        "SELECT habilitado FROM cursos WHERE id_curso = %(id)s",
+        {"id": id_str}
+    )
+
     if not curso:
         return jsonify({"error": "Curso não encontrado"}), 404
-    if not curso["habilitado"]:
-        return jsonify({"message": "Curso já está desabilitado"}), 200
 
-    run("""
+    run(
+        """
         UPDATE cursos
-        SET habilitado = FALSE, updated_at = NOW()
-        WHERE id_curso = %(id)s
-    """, {"id": id_curso})
+           SET habilitado = FALSE,
+               updated_at = NOW()
+         WHERE id_curso = %(id)s
+        """,
+        {"id": id_str}
+    )
+
     return jsonify({"message": "Curso desabilitado com sucesso"}), 200
 
 
@@ -417,15 +427,28 @@ def enable_curso(id_curso):
     if not _is_admin():
         return jsonify({"error": "acesso restrito a administradores"}), 403
 
-    curso = one("SELECT habilitado FROM cursos WHERE id_curso = %(id)s", {"id": id_curso})
+    # Converte UUID → string para evitar erro do psycopg2
+    id_str = str(id_curso)
+
+    curso = one(
+        "SELECT habilitado FROM cursos WHERE id_curso = %(id)s",
+        {"id": id_str}
+    )
+
     if not curso:
         return jsonify({"error": "Curso não encontrado"}), 404
+
     if curso["habilitado"]:
         return jsonify({"message": "Curso já está habilitado"}), 200
 
-    run("""
+    run(
+        """
         UPDATE cursos
-        SET habilitado = TRUE, updated_at = NOW()
-        WHERE id_curso = %(id)s
-    """, {"id": id_curso})
+           SET habilitado = TRUE,
+               updated_at = NOW()
+         WHERE id_curso = %(id)s
+        """,
+        {"id": id_str}
+    )
+
     return jsonify({"message": "Curso habilitado com sucesso"}), 200
