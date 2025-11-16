@@ -686,6 +686,7 @@ def get_me():
             ano_inicio,
             ano_fim,
             TO_CHAR(data_nascimento, 'YYYY-MM-DD') AS data_nascimento,
+            permissao AS cargo,
             imagem,
             created_at,
             updated_at,
