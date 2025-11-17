@@ -210,14 +210,17 @@ def get_curso(id_curso):
     print(f"[CURSOS][ID] - Headers: {headers_dict}")
     print(f"[CURSOS][ID] - ID_CURSO: {id_curso}")
 
+    id_str = str(id_curso)
+
     row = one("""
         SELECT id_curso, nome, descricao, periodo, habilitado, created_at, updated_at
         FROM cursos
         WHERE id_curso = %(id)s
-    """, {"id": id_curso})
+    """, {"id": id_str})
 
     if not row:
         return jsonify({"error": "Curso não encontrado"}), 404
+
     return jsonify(row), 200
 
 
@@ -290,21 +293,30 @@ def update_curso(id_curso):
     descricao = data.get("descricao")
     periodo_raw = data.get("periodo")
     periodo = _parse_periodo(periodo_raw) if "periodo" in data else None
+
     if periodo == "INVALID":
         return jsonify({"error": "O campo 'periodo' deve ser um inteiro >= 0"}), 400
 
-    curso = one("SELECT id_curso FROM cursos WHERE id_curso = %(id)s", {"id": id_curso})
+    id_str = str(id_curso)
+
+    curso = one(
+        "SELECT id_curso FROM cursos WHERE id_curso = %(id)s",
+        {"id": id_str}
+    )
     if not curso:
         return jsonify({"error": "Curso não encontrado"}), 404
 
-    run("""
+    run(
+        """
         UPDATE cursos
-        SET nome = COALESCE(%(n)s, nome),
-            descricao = COALESCE(%(d)s, descricao),
-            periodo = COALESCE(%(p)s, periodo),
-            updated_at = NOW()
-        WHERE id_curso = %(id)s
-    """, {"n": nome, "d": descricao, "p": periodo, "id": id_curso})
+           SET nome      = COALESCE(%(n)s, nome),
+               descricao = COALESCE(%(d)s, descricao),
+               periodo   = COALESCE(%(p)s, periodo),
+               updated_at = NOW()
+         WHERE id_curso = %(id)s
+        """,
+        {"n": nome, "d": descricao, "p": periodo, "id": id_str}
+    )
 
     return jsonify({"message": "Curso atualizado com sucesso"}), 200
 
@@ -356,7 +368,6 @@ def disable_curso(id_curso):
     if not _is_admin():
         return jsonify({"error": "acesso restrito a administradores"}), 403
 
-    # Sempre string na query
     id_str = str(id_curso)
 
     curso = one(
@@ -427,7 +438,6 @@ def enable_curso(id_curso):
     if not _is_admin():
         return jsonify({"error": "acesso restrito a administradores"}), 403
 
-    # Converte UUID → string para evitar erro do psycopg2
     id_str = str(id_curso)
 
     curso = one(
