@@ -7,6 +7,7 @@ from ..models.crypto import hash_password, check_password
 from ..models.jwt_manager import create_token_pair, refresh_tokens, revoke_token
 from ..models.auth import require_auth
 from ..models.digitalocean import DigitalOceanSpacesUploader
+from ..models.xp import atualizar_level_por_xp
 from datetime import datetime
 from werkzeug.utils import secure_filename
 
@@ -123,11 +124,13 @@ def register_step1():
 
     hashed = hash_password(senha)
 
-    # cria usuário com new=TRUE, habilitado=TRUE, validacao=FALSE (defaults da tabela)
+    # cria usuário com:
+    # - new=TRUE, habilitado=TRUE, validacao=FALSE (defaults da tabela)
+    # - xp_total = 0 (explícito)
     row = run("""
-        INSERT INTO usuarios (nome, email, contato, password)
-        VALUES (%(n)s, %(e)s, %(c)s, %(pw)s)
-        RETURNING id_usuario, new, habilitado, validacao
+        INSERT INTO usuarios (nome, email, contato, password, xp_total)
+        VALUES (%(n)s, %(e)s, %(c)s, %(pw)s, 0)
+        RETURNING id_usuario, new, habilitado, validacao, xp_total
     """, {
         "n": nome,
         "e": email,
@@ -136,6 +139,11 @@ def register_step1():
     })
 
     user_id = str(row["id_usuario"])
+
+    try:
+        atualizar_level_por_xp(user_id)
+    except Exception as e:
+        print(f"[STEP1 ] - Erro ao atualizar level inicial: {e}")
 
     # dados de contexto do request
     ip  = request.headers.get("X-Forwarded-For", request.remote_addr)
@@ -161,7 +169,6 @@ def register_step1():
         "refresh_token": refresh_token,
         "token_type": "Bearer"
     }), 201
-
 
 @user_bp.post("/auth/register/step2")
 @require_auth  # se ainda não tiver JWT pronto, pode remover temporariamente
@@ -629,9 +636,151 @@ def logout():
     ok = revoke_token(token, reason="logout")
     return jsonify({"revoked": ok}), 200 if ok else 400
 
+@user_bp.post("/usuarios/<uuid:id_usuario>/add-xp")
+@require_auth
+def add_xp_usuario(id_usuario):
+    """
+    Adicionar XP ao usuário
+
+    Adiciona um valor de XP ao usuário e recalcula automaticamente o nível
+    com base no novo xp_total.
+
+    ---
+    tags:
+      - Usuários
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: path
+        name: id_usuario
+        required: true
+        type: string
+        format: uuid
+        description: "ID do usuário (UUID)"
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - xp
+          properties:
+            xp:
+              type: integer
+              description: "Quantidade de XP a ser adicionada (pode ser positiva ou negativa, mas não zero)"
+              example: 50
+    responses:
+      200:
+        description: XP adicionado e nível recalculado com sucesso
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "XP adicionado e nível recalculado com sucesso."
+            usuario:
+              type: object
+              description: "Dados do usuário após atualização de XP e nível"
+            level:
+              type: object
+              description: "Dados do nível atual do usuário"
+      400:
+        description: XP inválido (não numérico ou igual a zero)
+      404:
+        description: Usuário não encontrado
+    """
+    data = request.get_json(force=True, silent=True) or {}
+    xp_delta = data.get("xp")
+
+    # Validação básica do XP enviado
+    try:
+        xp_delta = int(xp_delta)
+    except (TypeError, ValueError):
+        return jsonify({"error": "xp deve ser um número inteiro"}), 400
+
+    if xp_delta == 0:
+        return jsonify({"error": "xp não pode ser zero"}), 400
+
+    # Atualiza XP do usuário
+    usuario = one("""
+        UPDATE usuarios
+           SET xp_total   = xp_total + %(xp)s,
+               updated_at = NOW()
+         WHERE id_usuario = %(id)s
+     RETURNING id_usuario, nome, email, xp_total, id_level_atual
+    """, {
+        "xp": xp_delta,
+        "id": id_usuario
+    })
+
+    if not usuario:
+        return jsonify({"error": "Usuário não encontrado"}), 404
+
+    # Recalcula nível com base no novo XP
+    result = atualizar_level_por_xp(id_usuario)
+
+    if not result:
+        return jsonify({"error": "Usuário não encontrado ao recalcular nível"}), 404
+
+    return jsonify({
+        "message": "XP adicionado e nível recalculado com sucesso.",
+        "usuario": result["usuario"],
+        "level": result["level"]
+    }), 200
+
+@user_bp.post("/usuarios/<uuid:id_usuario>/level")
+@require_auth
+def recalcular_level_usuario(id_usuario):
+    """
+    Recalcular nível do usuário
+
+    Recalcula o nível do usuário com base no xp_total atual.
+    Não altera o XP, apenas ajusta o id_level_atual e retorna o nível.
+
+    ---
+    tags:
+      - Usuários
+    produces:
+      - application/json
+    parameters:
+      - in: path
+        name: id_usuario
+        required: true
+        type: string
+        format: uuid
+        description: "ID do usuário (UUID)"
+    responses:
+      200:
+        description: Nível recalculado com sucesso
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Nível recalculado com sucesso."
+            usuario:
+              type: object
+              description: "Dados do usuário após o recálculo de nível"
+            level:
+              type: object
+              description: "Dados do novo nível do usuário"
+      404:
+        description: Usuário não encontrado
+    """
+    result = atualizar_level_por_xp(id_usuario)
+
+    if result is None:
+        return jsonify({"error": "Usuário não encontrado"}), 404
+
+    return jsonify({
+        "message": "Nível recalculado com sucesso.",
+        "usuario": result["usuario"],
+        "level": result["level"]
+    }), 200
 
 # ---------- Rota protegida ----------
-
 @user_bp.get("/users/me")
 @require_auth
 def get_me():
@@ -662,6 +811,8 @@ def get_me():
           properties:
             user:
               type: object
+            level:
+              type: array
       401:
         description: Usuário não autenticado
       404:
@@ -673,29 +824,41 @@ def get_me():
     user_id = g.user_id
     print(f"[ME    ] - USER_ID: {user_id}")
 
-
     row = one(
         """
         SELECT
-            id_usuario,
-            nome,
-            email,
-            contato,
-            curso,
-            periodo,
-            ano_inicio,
-            ano_fim,
-            TO_CHAR(data_nascimento, 'YYYY-MM-DD') AS data_nascimento,
-            permissao AS cargo,
-            imagem,
-            created_at,
-            updated_at,
-            last_signed,
-            new,
-            habilitado,
-            validacao
-        FROM usuarios
-        WHERE id_usuario = %(uid)s
+            u.id_usuario,
+            u.nome,
+            u.email,
+            u.contato,
+            u.curso,
+            u.periodo,
+            u.ano_inicio,
+            u.ano_fim,
+            TO_CHAR(u.data_nascimento, 'YYYY-MM-DD') AS data_nascimento,
+            u.permissao AS cargo,
+            u.imagem,
+            u.created_at,
+            u.updated_at,
+            u.last_signed,
+            u.new,
+            u.habilitado,
+            u.validacao,
+            u.xp_total,
+            u.id_level_atual,
+
+            -- Dados do level atual (pode ser NULL)
+            l.id_level,
+            l.titulo       AS level_titulo,
+            l.tag          AS level_tag,
+            l.nivel        AS level_numero,
+            l.xp_min       AS level_xp_min,
+            l.xp_max       AS level_xp_max,
+            l.descricao    AS level_descricao
+        FROM usuarios u
+        LEFT JOIN levels l
+               ON u.id_level_atual = l.id_level
+        WHERE u.id_usuario = %(uid)s
         """,
         {"uid": user_id}
     )
@@ -703,4 +866,44 @@ def get_me():
     if not row:
         return jsonify({"error": "usuário não encontrado"}), 404
 
-    return jsonify({"user": row}), 200
+    # Monta o objeto user (mantendo o formato atual)
+    user = {
+        "id_usuario":      row["id_usuario"],
+        "nome":            row["nome"],
+        "email":           row["email"],
+        "contato":         row["contato"],
+        "curso":           row["curso"],
+        "periodo":         row["periodo"],
+        "ano_inicio":      row["ano_inicio"],
+        "ano_fim":         row["ano_fim"],
+        "data_nascimento": row["data_nascimento"],
+        "cargo":           row["cargo"],
+        "imagem":          row["imagem"],
+        "created_at":      row["created_at"],
+        "updated_at":      row["updated_at"],
+        "last_signed":     row["last_signed"],
+        "new":             row["new"],
+        "habilitado":      row["habilitado"],
+        "validacao":       row["validacao"],
+        "xp_total":        row.get("xp_total"),
+        "id_level_atual":  row.get("id_level_atual"),
+    }
+
+    # Monta o array level
+    level = []
+    if row.get("id_level"):
+        level.append({
+            "id_level":   row["id_level"],
+            "titulo":     row["level_titulo"],
+            "tag":        row["level_tag"],
+            "nivel":      row["level_numero"],
+            "xp_min":     row["level_xp_min"],
+            "xp_max":     row["level_xp_max"],
+            "descricao":  row["level_descricao"],
+        })
+
+    # Resposta final
+    return jsonify({
+        "user": user,
+        "level": level
+    }), 200
