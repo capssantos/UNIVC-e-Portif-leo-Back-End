@@ -30,7 +30,7 @@ def _is_admin_or_professor():
 
     return permissao in permissoes_validas
 
-@projetos_bp.post("/")
+@projetos_bp.post("")
 @require_auth
 def create_projeto():
     """
@@ -190,7 +190,7 @@ def create_projeto():
 
     return jsonify(row), 201
 # --------- Listar projetos ---------
-@projetos_bp.get("/")
+@projetos_bp.get("")
 @require_auth
 def list_projetos():
     """
