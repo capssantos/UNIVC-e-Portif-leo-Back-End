@@ -122,6 +122,7 @@ def create_projeto():
 
 # --------- Listar projetos ---------
 @projetos_bp.get("/")
+@require_auth
 def list_projetos():
     """
     Lista projetos.
@@ -190,6 +191,7 @@ def list_projetos():
 
 # --------- Detalhar projeto ---------
 @projetos_bp.get("/<uuid:id_projeto>")
+@require_auth
 def get_projeto(id_projeto):
     """
     Detalhes de um projeto
@@ -410,3 +412,256 @@ def delete_projeto(id_projeto):
     """, {"id": id_projeto})
 
     return jsonify(row), 200
+
+@projetos_bp.post("/<uuid:id_projeto>/participar")
+@require_auth
+def participar_projeto(id_projeto):
+    """
+    Aluno se inscreve em um projeto.
+
+    Body esperado (JSON) – opcional:
+    {
+      "mensagem": "Professor, queria participar porque...",
+      "papel": "ALUNO"  // opcional, default = "ALUNO"
+    }
+
+    ---
+    tags:
+      - Projetos
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    responses:
+      201:
+        description: Inscrição criada com sucesso (pendente de aprovação)
+      400:
+        description: Dados inválidos ou inscrição já existente
+      401:
+        description: Não autenticado
+      404:
+        description: Projeto não encontrado ou desabilitado
+    """
+    headers_dict = dict(request.headers)
+    data = request.get_json(force=True, silent=True) or {}
+    print(f"[PROJ PART] - Headers: {headers_dict}")
+    print(f"[PROJ PART] - Body: {data}")
+
+    user_id = getattr(g, "user_id", None)
+    if not user_id:
+        return jsonify({"error": "nenhum usuário autenticado"}), 401
+
+    # Verifica se o projeto existe e está habilitado
+    projeto = one("""
+        SELECT id_projeto, id_usuario, habilitado
+        FROM projetos
+        WHERE id_projeto = %(id)s
+    """, {"id": id_projeto})
+
+    if not projeto or not projeto.get("habilitado"):
+        return jsonify({"error": "Projeto não encontrado ou desabilitado"}), 404
+
+    # Evita duplicar inscrição (PENDENTE/APROVADO)
+    existente = one("""
+        SELECT id_participacao, status
+        FROM projetos_participantes
+        WHERE id_projeto = %(id_projeto)s
+          AND id_usuario = %(id_usuario)s
+    """, {
+        "id_projeto": id_projeto,
+        "id_usuario": user_id
+    })
+
+    if existente and existente.get("status") in ("PENDENTE", "APROVADO"):
+        return jsonify({"error": "Você já possui inscrição neste projeto"}), 400
+
+    mensagem = data.get("mensagem")
+    papel = data.get("papel") or "ALUNO"
+
+    row = one("""
+        INSERT INTO projetos_participantes
+            (id_projeto, id_usuario, papel, status, mensagem)
+        VALUES
+            (%(id_projeto)s, %(id_usuario)s, %(papel)s, 'PENDENTE', %(mensagem)s)
+        RETURNING
+            id_participacao,
+            id_projeto,
+            id_usuario,
+            papel,
+            status,
+            mensagem,
+            created_at,
+            updated_at
+    """, {
+        "id_projeto": id_projeto,
+        "id_usuario": user_id,
+        "papel": papel,
+        "mensagem": mensagem,
+    })
+
+    return jsonify(row), 201
+
+@projetos_bp.get("/<uuid:id_projeto>/participantes")
+@require_auth
+def listar_participantes_projeto(id_projeto):
+    """
+    Lista participações (inscrições) de um projeto.
+
+    Apenas o DONO do projeto (professor/adm) pode visualizar.
+
+    Filtros opcionais:
+      - ?status=PENDENTE|APROVADO|RECUSADO|CANCELADO
+    """
+    headers_dict = dict(request.headers)
+    print(f"[PROJ PART LIST] - Headers: {headers_dict}")
+    print(f"[PROJ PART LIST] - Args: {dict(request.args)}")
+
+    if not _is_admin_or_professor():
+        return jsonify({"error": "acesso restrito a administradores e professores"}), 403
+
+    user_id = getattr(g, "user_id", None)
+    if not user_id:
+        return jsonify({"error": "nenhum usuário autenticado"}), 401
+
+    projeto = one("""
+        SELECT id_projeto, id_usuario
+        FROM projetos
+        WHERE id_projeto = %(id)s
+    """, {"id": id_projeto})
+
+    if not projeto:
+        return jsonify({"error": "Projeto não encontrado"}), 404
+
+    # Apenas DONO do projeto
+    if str(projeto["id_usuario"]) != str(user_id):
+        return jsonify({"error": "Você não tem permissão para visualizar as inscrições deste projeto"}), 403
+
+    status = request.args.get("status")
+    params = {"id_projeto": id_projeto}
+    where = ["pp.id_projeto = %(id_projeto)s"]
+
+    if status:
+        where.append("pp.status = %(status)s")
+        params["status"] = status.strip().upper()
+
+    where_clause = " AND ".join(where)
+
+    rows = many(f"""
+        SELECT
+            pp.id_participacao,
+            pp.id_projeto,
+            pp.id_usuario,
+            u.nome        AS nome_usuario,
+            u.email       AS email_usuario,
+            pp.papel,
+            pp.status,
+            pp.mensagem,
+            pp.created_at,
+            pp.updated_at
+        FROM projetos_participantes pp
+        JOIN usuarios u ON u.id_usuario = pp.id_usuario
+        WHERE {where_clause}
+        ORDER BY pp.created_at DESC
+    """, params)
+
+    return jsonify(rows), 200
+
+@projetos_bp.patch("/<uuid:id_projeto>/participantes/<uuid:id_participacao>")
+@require_auth
+def atualizar_participacao_projeto(id_projeto, id_participacao):
+    """
+    Atualiza o status/participação de um aluno em um projeto.
+
+    Apenas o DONO do projeto (professor/adm) pode aprovar/recusar.
+
+    Body (JSON):
+      - status: PENDENTE | APROVADO | RECUSADO | CANCELADO
+      - papel: opcional (ex.: ALUNO, MONITOR)
+    """
+    headers_dict = dict(request.headers)
+    data = request.get_json(force=True, silent=True) or {}
+    print(f"[PROJ PART UPD] - Headers: {headers_dict}")
+    print(f"[PROJ PART UPD] - Body: {data}")
+
+    if not _is_admin_or_professor():
+        return jsonify({"error": "acesso restrito a administradores e professores"}), 403
+
+    user_id = getattr(g, "user_id", None)
+    if not user_id:
+        return jsonify({"error": "nenhum usuário autenticado"}), 401
+
+    projeto = one("""
+        SELECT id_projeto, id_usuario
+        FROM projetos
+        WHERE id_projeto = %(id)s
+    """, {"id": id_projeto})
+
+    if not projeto:
+        return jsonify({"error": "Projeto não encontrado"}), 404
+
+    # Apenas DONO do projeto
+    if str(projeto["id_usuario"]) != str(user_id):
+        return jsonify({"error": "Você não tem permissão para gerenciar inscrições deste projeto"}), 403
+
+    participacao = one("""
+        SELECT id_participacao, id_projeto, id_usuario, status, papel
+        FROM projetos_participantes
+        WHERE id_participacao = %(id_participacao)s
+          AND id_projeto = %(id_projeto)s
+    """, {
+        "id_participacao": id_participacao,
+        "id_projeto": id_projeto
+    })
+
+    if not participacao:
+        return jsonify({"error": "Participação não encontrada"}), 404
+
+    novo_status = data.get("status")
+    novo_papel  = data.get("papel")
+
+    if not novo_status and not novo_papel:
+        return jsonify({"error": "nenhum campo para atualização"}), 400
+
+    fields = []
+    params = {
+        "id_participacao": id_participacao,
+        "id_projeto": id_projeto,
+    }
+
+    if novo_status:
+        novo_status = novo_status.strip().upper()
+        status_validos = {"PENDENTE", "APROVADO", "RECUSADO", "CANCELADO"}
+        if novo_status not in status_validos:
+            return jsonify({"error": f"status inválido. Valores aceitos: {', '.join(status_validos)}"}), 400
+
+        fields.append("status = %(status)s")
+        params["status"] = novo_status
+
+    if novo_papel is not None:
+        fields.append("papel = %(papel)s")
+        params["papel"] = novo_papel
+
+    fields.append("updated_at = NOW()")
+
+    sql = f"""
+        UPDATE projetos_participantes
+           SET {", ".join(fields)}
+         WHERE id_participacao = %(id_participacao)s
+           AND id_projeto = %(id_projeto)s
+     RETURNING
+        id_participacao,
+        id_projeto,
+        id_usuario,
+        papel,
+        status,
+        mensagem,
+        created_at,
+        updated_at
+    """
+
+    row = one(sql, params)
+
+    return jsonify(row), 200
+
