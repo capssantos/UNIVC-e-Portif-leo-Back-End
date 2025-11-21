@@ -30,20 +30,22 @@ def _is_admin_or_professor():
 
     return permissao in permissoes_validas
 
-# --------- Criar projeto ---------
 @projetos_bp.post("/")
 @require_auth
 def create_projeto():
     """
-    Cria um novo projeto vinculado ao usuário autenticado.
+    Criar projeto
+
+    Cria um novo projeto vinculado ao usuário autenticado.  
+    Apenas usuários com permissao de administrador ou professor podem criar projetos.
 
     Body esperado (JSON):
 
     {
       "titulo": "Titulo da atividade",
-      "descricao": "breve descrição da atividade",
-      "texto": "texto completo em markdown ou html",
-      "imagem_atividade": "URL já retornada pela rota de upload",
+      "descricao": "Breve descricao da atividade",
+      "texto": "Texto completo em markdown ou HTML",
+      "imagem_atividade": "URL retornada pela rota de upload",
       "tags": ["python", "flask", "backend"]
     }
 
@@ -56,13 +58,81 @@ def create_projeto():
       - application/json
     produces:
       - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - titulo
+            - texto
+          properties:
+            titulo:
+              type: string
+              description: "Titulo da atividade ou projeto"
+              example: "API de Portifoleo UNIVC com Flask"
+            descricao:
+              type: string
+              description: "Resumo curto sobre o projeto"
+              example: "API backend em Flask para gerenciar projetos e atividades dos alunos"
+            texto:
+              type: string
+              description: "Texto completo em markdown ou HTML descrevendo o projeto"
+              example: "## Objetivo do projeto..."
+            imagem_atividade:
+              type: string
+              description: "URL publica da imagem da atividade retornada pela rota de upload"
+              example: "https://onicode.nyc3.digitaloceanspaces.com/UNIVC/e-Portifoleo/projetos/img123.png"
+            tags:
+              type: array
+              description: "Lista de tags relacionadas ao projeto"
+              items:
+                type: string
+              example: ["python", "flask", "backend", "api"]
     responses:
       201:
         description: Projeto criado com sucesso
+        schema:
+          type: object
+          properties:
+            id_projeto:
+              type: string
+              format: uuid
+            id_usuario:
+              type: string
+              format: uuid
+            titulo:
+              type: string
+            descricao:
+              type: string
+            texto:
+              type: string
+            imagem_atividade:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+            habilitado:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
       400:
-        description: Dados inválidos
+        description: Erro de validacao, campos obrigatorios ausentes ou tags invalidas
       401:
-        description: Não autenticado
+        description: Nao autenticado, token ausente ou invalido
+      403:
+        description: Usuario autenticado sem permissao para criar projeto
     """
     headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
@@ -119,28 +189,98 @@ def create_projeto():
     })
 
     return jsonify(row), 201
-
 # --------- Listar projetos ---------
 @projetos_bp.get("/")
 @require_auth
 def list_projetos():
     """
-    Lista projetos.
+    Listar projetos
 
-    Filtros opcionais (query params):
+    Retorna a lista de projetos habilitados, com suporte a filtros por usuário,
+    tag e paginação (limit/offset).
+
+    Filtros opcionais via query params:
       - ?id_usuario=<uuid>   -> projetos de um usuário específico
       - ?tag=python          -> projetos que contenham essa tag
-      - ?limit=20
-      - ?offset=0
+      - ?limit=20            -> quantidade máxima de registros
+      - ?offset=0            -> deslocamento para paginação
+
+    Requer autenticação via Bearer token.
 
     ---
     tags:
       - Projetos
+    security:
+      - Bearer: []
     produces:
       - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+      - in: query
+        name: id_usuario
+        required: false
+        type: string
+        format: uuid
+        description: "Filtra projetos de um usuário específico"
+      - in: query
+        name: tag
+        required: false
+        type: string
+        description: "Filtra projetos que contenham essa tag na lista de tags"
+      - in: query
+        name: limit
+        required: false
+        type: integer
+        description: "Quantidade máxima de registros retornados (padrão 20)"
+        default: 20
+      - in: query
+        name: offset
+        required: false
+        type: integer
+        description: "Deslocamento para paginação (padrão 0)"
+        default: 0
     responses:
       200:
-        description: Lista de projetos
+        description: Lista de projetos encontrados
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id_projeto:
+                type: string
+                format: uuid
+              id_usuario:
+                type: string
+                format: uuid
+              titulo:
+                type: string
+              descricao:
+                type: string
+              texto:
+                type: string
+              imagem_atividade:
+                type: string
+              tags:
+                type: array
+                items:
+                  type: string
+              habilitado:
+                type: boolean
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+      400:
+        description: "Erro de validação nos parâmetros (limit/offset inválidos)"
+      401:
+        description: "Não autenticado"
     """
     headers_dict = dict(request.headers)
     print(f"[PROJ LIST] - Headers: {headers_dict}")
@@ -194,16 +334,24 @@ def list_projetos():
 @require_auth
 def get_projeto(id_projeto):
     """
-    Detalhes de um projeto
+    Detalhar projeto
 
     Retorna os dados de um projeto específico pelo seu id_projeto.
+    Requer autenticação via Bearer token.
 
     ---
     tags:
       - Projetos
+    security:
+      - Bearer: []
     produces:
       - application/json
     parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
       - in: path
         name: id_projeto
         required: true
@@ -213,8 +361,39 @@ def get_projeto(id_projeto):
     responses:
       200:
         description: Projeto encontrado
+        schema:
+          type: object
+          properties:
+            id_projeto:
+              type: string
+              format: uuid
+            id_usuario:
+              type: string
+              format: uuid
+            titulo:
+              type: string
+            descricao:
+              type: string
+            texto:
+              type: string
+            imagem_atividade:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+            habilitado:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      401:
+        description: "Não autenticado"
       404:
-        description: Projeto não encontrado
+        description: "Projeto não encontrado"
     """
     headers_dict = dict(request.headers)
     print(f"[PROJ ID  ] - Headers: {headers_dict}")
@@ -246,9 +425,11 @@ def get_projeto(id_projeto):
 @require_auth
 def update_projeto(id_projeto):
     """
-    Atualiza um projeto.
+    Atualizar projeto (dono)
 
-    Apenas o DONO do projeto pode atualizar.
+    Atualiza um projeto existente.  
+    Apenas usuários autenticados com permissão de administrador ou professor
+    que sejam donos do projeto podem editar.
 
     Campos aceitos no body (todos opcionais):
       - titulo
@@ -257,6 +438,100 @@ def update_projeto(id_projeto):
       - imagem_atividade
       - tags (array de strings)
       - habilitado
+
+    ---
+    tags:
+      - Projetos
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+      - in: path
+        name: id_projeto
+        required: true
+        type: string
+        format: uuid
+        description: "ID do projeto (UUID)"
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            titulo:
+              type: string
+              description: "Novo título do projeto"
+              example: "API de Portifoleo UNIVC - v2"
+            descricao:
+              type: string
+              description: "Nova descrição resumida do projeto"
+              example: "Atualização com novos endpoints e melhorias de segurança"
+            texto:
+              type: string
+              description: "Texto completo em markdown ou HTML"
+              example: "## Novas funcionalidades..."
+            imagem_atividade:
+              type: string
+              description: "URL pública da nova imagem da atividade"
+              example: "https://onicode.nyc3.digitaloceanspaces.com/UNIVC/e-Portifoleo/projetos/img456.png"
+            tags:
+              type: array
+              description: "Lista de tags relacionadas ao projeto"
+              items:
+                type: string
+              example: ["python", "flask", "api", "update"]
+            habilitado:
+              type: boolean
+              description: "Define se o projeto está habilitado para exibição"
+              example: true
+    responses:
+      200:
+        description: "Projeto atualizado com sucesso"
+        schema:
+          type: object
+          properties:
+            id_projeto:
+              type: string
+              format: uuid
+            id_usuario:
+              type: string
+              format: uuid
+            titulo:
+              type: string
+            descricao:
+              type: string
+            texto:
+              type: string
+            imagem_atividade:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+            habilitado:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      400:
+        description: "Erro de validação (tags inválidas ou nenhum campo para atualização)"
+      401:
+        description: "Não autenticado"
+      403:
+        description: "Sem permissão para editar (não admin/professor ou não dono do projeto)"
+      404:
+        description: "Projeto não encontrado"
     """
     headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
@@ -346,13 +621,17 @@ def update_projeto(id_projeto):
     return jsonify(row), 200
 
 # --------- Desabilitar (soft delete) projeto ---------
-@projetos_bp.delete("<uuid:id_projeto>")
+@projetos_bp.delete("/<uuid:id_projeto>")
 @require_auth
 def delete_projeto(id_projeto):
     """
-    Desabilita (soft delete) um projeto.
+    Desabilitar projeto (soft delete)
 
-    Apenas o DONO do projeto pode desabilitar.
+    Marca o projeto como desabilitado (habilitado = FALSE).  
+    Apenas administradores ou professores que SEJAM DONOS do projeto
+    podem executar esta ação.
+
+    Essa operação não apaga o projeto do banco; apenas o oculta do sistema.
 
     ---
     tags:
@@ -361,19 +640,62 @@ def delete_projeto(id_projeto):
       - Bearer: []
     produces:
       - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        type: string
+        required: true
+        description: "Token JWT no formato Bearer <token>"
+      - in: path
+        name: id_projeto
+        type: string
+        required: true
+        format: uuid
+        description: "ID do projeto a ser desabilitado"
     responses:
       200:
         description: Projeto desabilitado com sucesso
+        schema:
+          type: object
+          properties:
+            id_projeto:
+              type: string
+              format: uuid
+            id_usuario:
+              type: string
+              format: uuid
+            titulo:
+              type: string
+            descricao:
+              type: string
+            texto:
+              type: string
+            imagem_atividade:
+              type: string
+            tags:
+              type: array
+              items:
+                type: string
+            habilitado:
+              type: boolean
+              example: false
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
       401:
-        description: Não autenticado
+        description: "Usuário não autenticado"
       403:
-        description: Não é dono do projeto
+        description: "Sem permissão (não admin/professor ou não dono do projeto)"
       404:
-        description: Projeto não encontrado
+        description: "Projeto não encontrado"
     """
     headers_dict = dict(request.headers)
     print(f"[PROJ DEL ] - Headers: {headers_dict}")
 
+    # permissões
     if not _is_admin_or_professor():
         return jsonify({"error": "acesso restrito a administradores e professores"}), 403
 
@@ -381,6 +703,7 @@ def delete_projeto(id_projeto):
     if not user_id:
         return jsonify({"error": "nenhum usuário autenticado"}), 401
 
+    # verificar projeto
     projeto = one("""
         SELECT id_projeto, id_usuario
         FROM projetos
@@ -390,9 +713,11 @@ def delete_projeto(id_projeto):
     if not projeto:
         return jsonify({"error": "Projeto não encontrado"}), 404
 
+    # confirmar se é dono
     if str(projeto["id_usuario"]) != str(user_id):
         return jsonify({"error": "Você não tem permissão para remover este projeto"}), 403
 
+    # soft delete
     row = one("""
         UPDATE projetos
            SET habilitado = FALSE,
@@ -417,13 +742,19 @@ def delete_projeto(id_projeto):
 @require_auth
 def participar_projeto(id_projeto):
     """
-    Aluno se inscreve em um projeto.
+    Participar de projeto
+
+    Aluno se inscreve em um projeto.  
+    A inscrição fica com status inicial 'PENDENTE' até o professor/aplicador aprovar.
 
     Body esperado (JSON) – opcional:
+
     {
       "mensagem": "Professor, queria participar porque...",
-      "papel": "ALUNO"  // opcional, default = "ALUNO"
+      "papel": "ALUNO"
     }
+
+    Se 'papel' não for informado, o padrão é "ALUNO".
 
     ---
     tags:
@@ -434,15 +765,67 @@ def participar_projeto(id_projeto):
       - application/json
     produces:
       - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+      - in: path
+        name: id_projeto
+        required: true
+        type: string
+        format: uuid
+        description: "ID do projeto no qual o aluno deseja se inscrever"
+      - in: body
+        name: body
+        required: false
+        schema:
+          type: object
+          properties:
+            mensagem:
+              type: string
+              description: "Mensagem opcional para o professor explicando o interesse"
+              example: "Professor, queria participar porque gosto de backend e APIs."
+            papel:
+              type: string
+              description: "Papel desejado no projeto (padrão ALUNO)"
+              example: "ALUNO"
     responses:
       201:
-        description: Inscrição criada com sucesso (pendente de aprovação)
+        description: "Inscrição criada com sucesso (pendente de aprovação)"
+        schema:
+          type: object
+          properties:
+            id_participacao:
+              type: string
+              format: uuid
+            id_projeto:
+              type: string
+              format: uuid
+            id_usuario:
+              type: string
+              format: uuid
+            papel:
+              type: string
+              example: "ALUNO"
+            status:
+              type: string
+              example: "PENDENTE"
+            mensagem:
+              type: string
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
       400:
-        description: Dados inválidos ou inscrição já existente
+        description: "Dados inválidos ou inscrição já existente (PENDENTE ou APROVADO)"
       401:
-        description: Não autenticado
+        description: "Não autenticado"
       404:
-        description: Projeto não encontrado ou desabilitado
+        description: "Projeto não encontrado ou desabilitado"
     """
     headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
@@ -507,12 +890,84 @@ def participar_projeto(id_projeto):
 @require_auth
 def listar_participantes_projeto(id_projeto):
     """
-    Lista participações (inscrições) de um projeto.
+    Listar participantes de um projeto
 
-    Apenas o DONO do projeto (professor/adm) pode visualizar.
+    Lista as participações (inscrições) de um projeto.  
+    Apenas o DONO do projeto (professor/adm) pode visualizar as inscrições.
 
-    Filtros opcionais:
+    Filtro opcional via query param:
       - ?status=PENDENTE|APROVADO|RECUSADO|CANCELADO
+
+    ---
+    tags:
+      - Projetos
+    security:
+      - Bearer: []
+    produces:
+      - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+      - in: path
+        name: id_projeto
+        required: true
+        type: string
+        format: uuid
+        description: "ID do projeto (UUID)"
+      - in: query
+        name: status
+        required: false
+        type: string
+        description: "Filtra inscrições por status"
+        enum:
+          - PENDENTE
+          - APROVADO
+          - RECUSADO
+          - CANCELADO
+    responses:
+      200:
+        description: "Lista de participações do projeto"
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id_participacao:
+                type: string
+                format: uuid
+              id_projeto:
+                type: string
+                format: uuid
+              id_usuario:
+                type: string
+                format: uuid
+              nome_usuario:
+                type: string
+              email_usuario:
+                type: string
+              papel:
+                type: string
+                example: "ALUNO"
+              status:
+                type: string
+                example: "PENDENTE"
+              mensagem:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+      401:
+        description: "Não autenticado"
+      403:
+        description: "Sem permissão (não admin/professor ou não dono do projeto)"
+      404:
+        description: "Projeto não encontrado"
     """
     headers_dict = dict(request.headers)
     print(f"[PROJ PART LIST] - Headers: {headers_dict}")
@@ -572,13 +1027,95 @@ def listar_participantes_projeto(id_projeto):
 @require_auth
 def atualizar_participacao_projeto(id_projeto, id_participacao):
     """
-    Atualiza o status/participação de um aluno em um projeto.
+    Atualizar participação em projeto
 
-    Apenas o DONO do projeto (professor/adm) pode aprovar/recusar.
+    Atualiza o status e/ou o papel de um participante em um projeto.  
+    Apenas o DONO do projeto (professor/adm) pode aprovar, recusar, cancelar
+    ou ajustar o papel do participante.
 
     Body (JSON):
-      - status: PENDENTE | APROVADO | RECUSADO | CANCELADO
-      - papel: opcional (ex.: ALUNO, MONITOR)
+
+    {
+      "status": "PENDENTE | APROVADO | RECUSADO | CANCELADO",
+      "papel": "ALUNO | MONITOR | outro papel"
+    }
+
+    ---
+    tags:
+      - Projetos
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+      - in: path
+        name: id_projeto
+        required: true
+        type: string
+        format: uuid
+        description: "ID do projeto (UUID)"
+      - in: path
+        name: id_participacao
+        required: true
+        type: string
+        format: uuid
+        description: "ID da participação (UUID)"
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              description: "Novo status da participação. Valores aceitos: PENDENTE, APROVADO, RECUSADO, CANCELADO"
+              example: "APROVADO"
+            papel:
+              type: string
+              description: "Novo papel do participante no projeto (exemplo: ALUNO, MONITOR)"
+              example: "MONITOR"
+    responses:
+      200:
+        description: "Participação atualizada com sucesso"
+        schema:
+          type: object
+          properties:
+            id_participacao:
+              type: string
+              format: uuid
+            id_projeto:
+              type: string
+              format: uuid
+            id_usuario:
+              type: string
+              format: uuid
+            papel:
+              type: string
+            status:
+              type: string
+            mensagem:
+              type: string
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      400:
+        description: "Dados inválidos (nenhum campo informado ou status inválido)"
+      401:
+        description: "Não autenticado"
+      403:
+        description: "Sem permissão (não admin/professor ou não dono do projeto)"
+      404:
+        description: "Projeto ou participação não encontrada"
     """
     headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
@@ -664,4 +1201,3 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
     row = one(sql, params)
 
     return jsonify(row), 200
-
