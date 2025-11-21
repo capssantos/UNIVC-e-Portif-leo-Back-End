@@ -6,17 +6,25 @@ from flasgger import Swagger
 def create_app():
     app = Flask(__name__)
 
-    CORS(app, origins=["*"])
+    # Libera explicitamente o front
+    CORS(
+        app,
+        resources={r"/*": {
+            "origins": [
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "https://apiunivc.carlosp.dev",  # se quiser que o Swagger continue funcionando bonitinho
+            ]
+        }}
+    )
 
-    # Configuração básica do Swagger
     app.config["SWAGGER"] = {
         "title": "API Portifoleo UNIVC",
-        "uiversion": 3,  # Swagger UI v3
+        "uiversion": 3,
     }
 
-    Swagger(app)  # Inicializa o Swagger
+    Swagger(app)
 
-    # Importar e registrar blueprints
     from .routes.main_routes import main_bp
     from .routes.user_routes import user_bp
     from .routes.cursos_routes import cursos_bp
