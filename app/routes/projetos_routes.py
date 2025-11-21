@@ -8,31 +8,27 @@ from datetime import datetime
 load_dotenv()
 projetos_bp = Blueprint("projetos", __name__)
 
-
-def _parse_tags(tags_raw):
+def _is_admin_or_professor():
     """
-    Aceita:
-      - lista: ["python", "flask"]
-      - string: "python, flask, backend" ou "#python #flask"
-    Retorna lista de strings limpa ou None.
+    Verifica se o usuário autenticado possui permissão suficiente
+    para publicar projetos. Permissões válidas: ADMIN, PROFESSOR.
     """
-    if not tags_raw:
-        return None
+    user_id = getattr(g, "user_id", None)
+    if not user_id:
+        return False
 
-    if isinstance(tags_raw, (list, tuple)):
-        tags = [str(t).strip() for t in tags_raw if str(t).strip()]
-        return tags or None
+    row = one(
+        "SELECT permissao FROM usuarios WHERE id_usuario = %(id)s",
+        {"id": user_id}
+    )
 
-    if isinstance(tags_raw, str):
-        cleaned = tags_raw.replace("#", " ")
-        parts = []
-        for chunk in cleaned.split(","):
-            parts.extend(chunk.split())
-        tags = [p.strip() for p in parts if p.strip()]
-        return tags or None
+    if not row or not row.get("permissao"):
+        return False
 
-    return None
+    permissao = row["permissao"].strip().upper()
+    permissoes_validas = {"ADMIN", "PROFESSOR"}
 
+    return permissao in permissoes_validas
 
 # --------- Criar projeto ---------
 @projetos_bp.post("/")
@@ -49,7 +45,6 @@ def create_projeto():
       "texto": "texto completo em markdown ou html",
       "imagem_atividade": "URL já retornada pela rota de upload",
       "tags": ["python", "flask", "backend"]
-      // OU: "tags": "python, flask, backend"
     }
 
     ---
@@ -74,6 +69,9 @@ def create_projeto():
     print(f"[PROJ CRIAR] - Headers: {headers_dict}")
     print(f"[PROJ CRIAR] - Body: {data}")
 
+    if not _is_admin_or_professor():
+        return jsonify({"error": "acesso restrito a administradores e professores"}), 403
+
     user_id = getattr(g, "user_id", None)
     if not user_id:
         return jsonify({"error": "nenhum usuário autenticado"}), 401
@@ -82,12 +80,18 @@ def create_projeto():
     descricao        = data.get("descricao")
     texto            = data.get("texto")
     imagem_atividade = data.get("imagem_atividade")
-    tags_raw         = data.get("tags")
+    tags             = data.get("tags")
+
+    # Se vier None, vira lista vazia
+    if tags is None:
+        tags = []
+
+    # Validação simples: garantir que seja um array de strings
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        return jsonify({"error": "tags deve ser uma lista de strings"}), 400
 
     if not titulo or not texto:
         return jsonify({"error": "titulo e texto são obrigatórios"}), 400
-
-    tags = _parse_tags(tags_raw)
 
     row = one("""
         INSERT INTO projetos
@@ -115,7 +119,6 @@ def create_projeto():
     })
 
     return jsonify(row), 201
-
 
 # --------- Listar projetos ---------
 @projetos_bp.get("/")
@@ -185,7 +188,6 @@ def list_projetos():
 
     return jsonify(rows), 200
 
-
 # --------- Detalhar projeto ---------
 @projetos_bp.get("/<uuid:id_projeto>")
 def get_projeto(id_projeto):
@@ -237,7 +239,6 @@ def get_projeto(id_projeto):
 
     return jsonify(row), 200
 
-
 # --------- Atualizar projeto (dono) ---------
 @projetos_bp.patch("/<uuid:id_projeto>")
 @require_auth
@@ -252,34 +253,16 @@ def update_projeto(id_projeto):
       - descricao
       - texto
       - imagem_atividade
-      - tags
+      - tags (array de strings)
       - habilitado
-
-    ---
-    tags:
-      - Projetos
-    security:
-      - Bearer: []
-    consumes:
-      - application/json
-    produces:
-      - application/json
-    responses:
-      200:
-        description: Projeto atualizado com sucesso
-      400:
-        description: Nenhum campo enviado
-      401:
-        description: Não autenticado
-      403:
-        description: Não é dono do projeto
-      404:
-        description: Projeto não encontrado
     """
     headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
     print(f"[PROJ UPD ] - Headers: {headers_dict}")
     print(f"[PROJ UPD ] - Body: {data}")
+
+    if not _is_admin_or_professor():
+        return jsonify({"error": "acesso restrito a administradores e professores"}), 403
 
     user_id = getattr(g, "user_id", None)
     if not user_id:
@@ -317,8 +300,18 @@ def update_projeto(id_projeto):
         params["imagem_atividade"] = data.get("imagem_atividade")
 
     if "tags" in data:
-        params["tags"] = _parse_tags(data.get("tags"))
+        tags = data.get("tags")
+
+        # Se vier None, zera as tags
+        if tags is None:
+            tags = []
+
+        # Validação simples: garantir que seja um array de strings
+        if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+            return jsonify({"error": "tags deve ser uma lista de strings"}), 400
+
         fields.append("tags = %(tags)s")
+        params["tags"] = tags
 
     if "habilitado" in data:
         fields.append("habilitado = %(habilitado)s")
@@ -350,7 +343,6 @@ def update_projeto(id_projeto):
 
     return jsonify(row), 200
 
-
 # --------- Desabilitar (soft delete) projeto ---------
 @projetos_bp.delete("<uuid:id_projeto>")
 @require_auth
@@ -379,6 +371,9 @@ def delete_projeto(id_projeto):
     """
     headers_dict = dict(request.headers)
     print(f"[PROJ DEL ] - Headers: {headers_dict}")
+
+    if not _is_admin_or_professor():
+        return jsonify({"error": "acesso restrito a administradores e professores"}), 403
 
     user_id = getattr(g, "user_id", None)
     if not user_id:

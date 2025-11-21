@@ -36,7 +36,6 @@ def _generate_lista_periodos_from_int(qtd):
         return []
     return [f"{i}º Período" for i in range(1, qtd + 1)]
 
-
 def _is_admin():
     """
     Verifica se o usuário autenticado possui permissao = 'admin'.
@@ -53,7 +52,6 @@ def _is_admin():
         return False
 
     return row.get("permissao") == "ADMIN"
-
 
 @cursos_bp.post("/")
 @require_auth
