@@ -8,6 +8,23 @@ from datetime import datetime
 load_dotenv()
 projetos_bp = Blueprint("projetos", __name__)
 
+def _is_admin():
+    """
+    Verifica se o usuário autenticado possui permissao = 'admin'.
+    """
+    user_id = getattr(g, "user_id", None)
+    if not user_id:
+        return False
+
+    row = one(
+        "SELECT permissao FROM usuarios WHERE id_usuario = %(id)s",
+        {"id": user_id}
+    )
+    if not row:
+        return False
+
+    return row.get("permissao") == "ADMIN"
+
 def _is_admin_or_professor():
     """
     Verifica se o usuário autenticado possui permissão suficiente
@@ -189,6 +206,7 @@ def create_projeto():
     })
 
     return jsonify(row), 201
+
 # --------- Listar projetos ---------
 @projetos_bp.get("/")
 @require_auth
@@ -196,14 +214,15 @@ def list_projetos():
     """
     Listar projetos
 
-    Retorna a lista de projetos habilitados, com suporte a filtros por usuário,
-    tag e paginação (limit/offset).
+    Retorna a lista de projetos, com suporte a filtros por usuário,
+    tag, habilitado e paginação (limit/offset).
 
     Filtros opcionais via query params:
-      - ?id_usuario=<uuid>   -> projetos de um usuário específico
-      - ?tag=python          -> projetos que contenham essa tag
-      - ?limit=20            -> quantidade máxima de registros
-      - ?offset=0            -> deslocamento para paginação
+      - ?id_usuario=<uuid>        -> projetos de um usuário específico
+      - ?tag=python               -> projetos que contenham essa tag
+      - ?habilitado=true|false    -> filtra por status de habilitação
+      - ?limit=20                 -> quantidade máxima de registros
+      - ?offset=0                 -> deslocamento para paginação
 
     Requer autenticação via Bearer token.
 
@@ -231,6 +250,11 @@ def list_projetos():
         required: false
         type: string
         description: "Filtra projetos que contenham essa tag na lista de tags"
+      - in: query
+        name: habilitado
+        required: false
+        type: boolean
+        description: "Filtra projetos habilitados (true) ou desabilitados (false)"
       - in: query
         name: limit
         required: false
@@ -278,7 +302,7 @@ def list_projetos():
                 type: string
                 format: date-time
       400:
-        description: "Erro de validação nos parâmetros (limit/offset inválidos)"
+        description: "Erro de validação nos parâmetros"
       401:
         description: "Não autenticado"
     """
@@ -288,6 +312,7 @@ def list_projetos():
 
     id_usuario = request.args.get("id_usuario")
     tag        = request.args.get("tag")
+    habilitado = request.args.get("habilitado")  # 'true', 'false' ou None
 
     try:
         limit  = int(request.args.get("limit", 20))
@@ -295,7 +320,10 @@ def list_projetos():
     except ValueError:
         return jsonify({"error": "limit e offset devem ser inteiros"}), 400
 
-    filters = ["habilitado = TRUE"]
+    if limit < 0 or offset < 0:
+        return jsonify({"error": "limit e offset devem ser não negativos"}), 400
+
+    filters = []
     params = {"limit": limit, "offset": offset}
 
     if id_usuario:
@@ -306,7 +334,19 @@ def list_projetos():
         filters.append("tags @> ARRAY[%(tag)s]::text[]")
         params["tag"] = tag
 
-    where_clause = " AND ".join(filters)
+    if habilitado is not None:
+        value = habilitado.strip().lower()
+        if value in ("true", "1", "t", "sim", "yes"):
+            params["habilitado"] = True
+        elif value in ("false", "0", "f", "nao", "não", "no"):
+            params["habilitado"] = False
+        else:
+            return jsonify({
+                "error": "Parâmetro 'habilitado' deve ser true ou false"
+            }), 400
+        filters.append("habilitado = %(habilitado)s")
+
+    where_clause = " AND ".join(filters) if filters else "TRUE"
 
     rows = many(f"""
         SELECT
@@ -713,8 +753,7 @@ def delete_projeto(id_projeto):
     if not projeto:
         return jsonify({"error": "Projeto não encontrado"}), 404
 
-    # confirmar se é dono
-    if str(projeto["id_usuario"]) != str(user_id):
+    if not _is_admin() and (str(projeto["id_usuario"]) != str(user_id)):
         return jsonify({"error": "Você não tem permissão para remover este projeto"}), 403
 
     # soft delete
@@ -808,7 +847,7 @@ def participar_projeto(id_projeto):
               format: uuid
             papel:
               type: string
-              example: "ALUNO"
+              example: "MEMBRO"
             status:
               type: string
               example: "PENDENTE"
@@ -861,7 +900,7 @@ def participar_projeto(id_projeto):
         return jsonify({"error": "Você já possui inscrição neste projeto"}), 400
 
     mensagem = data.get("mensagem")
-    papel = data.get("papel") or "ALUNO"
+    papel = data.get("papel") or "MEMBRO"
 
     row = one("""
         INSERT INTO projetos_participantes
@@ -1037,7 +1076,7 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
 
     {
       "status": "PENDENTE | APROVADO | RECUSADO | CANCELADO",
-      "papel": "ALUNO | MONITOR | outro papel"
+      "papel": "MEMBRO | MONITOR (1) | outro papel"
     }
 
     ---
@@ -1079,7 +1118,7 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
               example: "APROVADO"
             papel:
               type: string
-              description: "Novo papel do participante no projeto (exemplo: ALUNO, MONITOR)"
+              description: "Novo papel do participante no projeto (exemplo: MEMBRO, MONITOR)"
               example: "MONITOR"
     responses:
       200:
@@ -1158,7 +1197,7 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
     novo_status = data.get("status")
     novo_papel  = data.get("papel")
 
-    if not novo_status and not novo_papel:
+    if not novo_status and novo_papel is None:
         return jsonify({"error": "nenhum campo para atualização"}), 400
 
     fields = []
@@ -1167,18 +1206,48 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
         "id_projeto": id_projeto,
     }
 
+    status_normalizado = None
     if novo_status:
-        novo_status = novo_status.strip().upper()
+        status_normalizado = novo_status.strip().upper()
         status_validos = {"PENDENTE", "APROVADO", "RECUSADO", "CANCELADO"}
-        if novo_status not in status_validos:
+        if status_normalizado not in status_validos:
             return jsonify({"error": f"status inválido. Valores aceitos: {', '.join(status_validos)}"}), 400
 
         fields.append("status = %(status)s")
-        params["status"] = novo_status
+        params["status"] = status_normalizado
 
     if novo_papel is not None:
         fields.append("papel = %(papel)s")
         params["papel"] = novo_papel
+
+    # ---------- Regra de apenas 1 MONITOR APROVADO por projeto ----------
+    # Descobre como ficará o papel e o status DEPOIS da atualização
+    papel_final = (novo_papel if novo_papel is not None else participacao["papel"]) or ""
+    papel_final = papel_final.strip().upper()
+
+    status_final = (status_normalizado if status_normalizado is not None else participacao["status"]) or ""
+    status_final = status_final.strip().upper()
+
+    # Se esse registro vai virar (ou continuar sendo) MONITOR APROVADO,
+    # verifica se já existe outro monitor aprovado no mesmo projeto.
+    if papel_final == "MONITOR" and status_final == "APROVADO":
+        existente_monitor = one("""
+            SELECT id_participacao
+            FROM projetos_participantes
+            WHERE id_projeto = %(id_projeto)s
+              AND id_participacao <> %(id_participacao)s
+              AND UPPER(papel) = 'MONITOR'
+              AND UPPER(status) = 'APROVADO'
+        """, {
+            "id_projeto": id_projeto,
+            "id_participacao": id_participacao,
+        })
+
+        if existente_monitor:
+            return jsonify({
+                "error": "Já existe um monitor aprovado neste projeto. Só é permitido um monitor por projeto."
+            }), 400
+    # -------------------------------------------------------------------
 
     fields.append("updated_at = NOW()")
 
@@ -1201,3 +1270,228 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
     row = one(sql, params)
 
     return jsonify(row), 200
+
+@projetos_bp.post("/<uuid:id_projeto>/participantes/adicionar")
+@require_auth
+def adicionar_participante_projeto(id_projeto):
+    """
+    Adicionar participante em projeto (pelo professor/adm)
+
+    Permite que o DONO do projeto (professor/adm) adicione um aluno diretamente
+    ao projeto, definindo o papel e o status da participação.
+
+    Body (JSON):
+
+    {
+      "id_usuario": "UUID do aluno",
+      "papel": "MEMBRO | MONITOR | (opcional, padrão MEMBRO)",
+      "status": "PENDENTE | APROVADO | RECUSADO | CANCELADO (opcional, padrão APROVADO)",
+      "mensagem": "Mensagem opcional para o aluno"
+    }
+
+    Regras:
+    - Apenas o DONO do projeto (professor/adm) pode adicionar.
+    - Se o papel final for MONITOR e o status final for APROVADO,
+      só é permitido um monitor aprovado por projeto.
+    - Se o aluno já tiver inscrição PENDENTE ou APROVADO no projeto,
+      não é permitido criar uma nova.
+
+    ---
+    tags:
+      - Projetos
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+      - in: path
+        name: id_projeto
+        required: true
+        type: string
+        format: uuid
+        description: "ID do projeto (UUID) onde o aluno será adicionado"
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - id_usuario
+          properties:
+            id_usuario:
+              type: string
+              format: uuid
+              description: "ID do aluno a ser adicionado ao projeto"
+              example: "8b7b8e2a-7e1c-4b46-9c23-9f5a0e3d1234"
+            papel:
+              type: string
+              description: "Papel do usuário no projeto. Padrão MEMBRO"
+              example: "MEMBRO"
+            status:
+              type: string
+              description: "Status inicial da participação. Padrão APROVADO"
+              enum:
+                - PENDENTE
+                - APROVADO
+                - RECUSADO
+                - CANCELADO
+              example: "APROVADO"
+            mensagem:
+              type: string
+              description: "Mensagem opcional para o aluno sobre a participação"
+              example: "Você foi adicionado como monitor deste projeto."
+    responses:
+      201:
+        description: "Participação criada com sucesso"
+        schema:
+          type: object
+          properties:
+            id_participacao:
+              type: string
+              format: uuid
+            id_projeto:
+              type: string
+              format: uuid
+            id_usuario:
+              type: string
+              format: uuid
+            papel:
+              type: string
+              example: "ALUNO"
+            status:
+              type: string
+              example: "APROVADO"
+            mensagem:
+              type: string
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      400:
+        description: "Erro de validação (id_usuario ausente, status inválido ou já possui inscrição PENDENTE/APROVADO)"
+      401:
+        description: "Não autenticado"
+      403:
+        description: "Sem permissão (não admin/professor ou não dono do projeto)"
+      404:
+        description: "Projeto ou usuário (aluno) não encontrado"
+    """
+    headers_dict = dict(request.headers)
+    data = request.get_json(force=True, silent=True) or {}
+    print(f"[PROJ PART ADD] - Headers: {headers_dict}")
+    print(f"[PROJ PART ADD] - Body: {data}")
+
+    # Verifica permissão global
+    if not _is_admin_or_professor():
+        return jsonify({"error": "acesso restrito a administradores e professores"}), 403
+
+    user_id = getattr(g, "user_id", None)
+    if not user_id:
+        return jsonify({"error": "nenhum usuário autenticado"}), 401
+
+    # Verifica se o projeto existe e se o usuário é o DONO
+    projeto = one("""
+        SELECT id_projeto, id_usuario
+        FROM projetos
+        WHERE id_projeto = %(id)s
+    """, {"id": id_projeto})
+
+    if not projeto:
+        return jsonify({"error": "Projeto não encontrado"}), 404
+
+    if str(projeto["id_usuario"]) != str(user_id):
+        return jsonify({"error": "Você não tem permissão para gerenciar inscrições deste projeto"}), 403
+
+    # Dados do body
+    id_usuario_alvo = data.get("id_usuario")
+    if not id_usuario_alvo:
+        return jsonify({"error": "id_usuario é obrigatório"}), 400
+
+    papel = data.get("papel") or "MEMBRO"
+    status = data.get("status") or "APROVADO"
+    mensagem = data.get("mensagem")
+
+    status_normalizado = status.strip().upper()
+    status_validos = {"PENDENTE", "APROVADO", "RECUSADO", "CANCELADO"}
+    if status_normalizado not in status_validos:
+        return jsonify({"error": f"status inválido. Valores aceitos: {', '.join(status_validos)}"}), 400
+
+    # Verifica se o aluno existe
+    usuario = one("""
+        SELECT id_usuario
+        FROM usuarios
+        WHERE id_usuario = %(id)s
+    """, {"id": id_usuario_alvo})
+
+    if not usuario:
+        return jsonify({"error": "Usuário (aluno) não encontrado"}), 404
+
+    # Evita duplicar inscrição PENDENTE/APROVADO
+    existente = one("""
+        SELECT id_participacao, status
+        FROM projetos_participantes
+        WHERE id_projeto = %(id_projeto)s
+          AND id_usuario = %(id_usuario)s
+    """, {
+        "id_projeto": id_projeto,
+        "id_usuario": id_usuario_alvo
+    })
+
+    if existente and existente.get("status") in ("PENDENTE", "APROVADO"):
+        return jsonify({
+            "error": "Este usuário já possui inscrição PENDENTE ou APROVADO neste projeto"
+        }), 400
+
+    # Regra: apenas 1 MONITOR APROVADO por projeto
+    papel_final_upper = (papel or "").strip().upper()
+    status_final_upper = status_normalizado
+
+    if papel_final_upper == "MONITOR" and status_final_upper == "APROVADO":
+        existente_monitor = one("""
+            SELECT id_participacao
+            FROM projetos_participantes
+            WHERE id_projeto = %(id_projeto)s
+              AND UPPER(papel) = 'MONITOR'
+              AND UPPER(status) = 'APROVADO'
+        """, {
+            "id_projeto": id_projeto,
+        })
+
+        if existente_monitor:
+            return jsonify({
+                "error": "Já existe um monitor aprovado neste projeto. Só é permitido um monitor por projeto."
+            }), 400
+
+    # Cria a participação
+    row = one("""
+        INSERT INTO projetos_participantes
+            (id_projeto, id_usuario, papel, status, mensagem)
+        VALUES
+            (%(id_projeto)s, %(id_usuario)s, %(papel)s, %(status)s, %(mensagem)s)
+        RETURNING
+            id_participacao,
+            id_projeto,
+            id_usuario,
+            papel,
+            status,
+            mensagem,
+            created_at,
+            updated_at
+    """, {
+        "id_projeto": id_projeto,
+        "id_usuario": id_usuario_alvo,
+        "papel": papel,
+        "status": status_normalizado,
+        "mensagem": mensagem,
+    })
+
+    return jsonify(row), 201
