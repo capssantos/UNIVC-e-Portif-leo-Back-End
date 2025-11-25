@@ -22,11 +22,13 @@ def create_app():
     from .routes.cursos_routes import cursos_bp
     from .routes.levels_routes import levels_bp
     from .routes.projetos_routes import projetos_bp
+    from .routes.missoes_routes import missoes_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(user_bp)
     app.register_blueprint(cursos_bp, url_prefix="/cursos")
     app.register_blueprint(levels_bp, url_prefix="/levels")
     app.register_blueprint(projetos_bp, url_prefix="/projetos")
+    app.register_blueprint(missoes_bp, url_prefix="/missoes")
 
     return app
