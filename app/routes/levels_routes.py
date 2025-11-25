@@ -9,7 +9,59 @@ levels_bp = Blueprint("levels", __name__, url_prefix="/levels")
 @levels_bp.get("/")
 def list_levels():
     """
-    Lista todos os níveis (com filtros opcionais por tag).
+    Listar níveis (com filtros opcionais)
+
+    Retorna todos os níveis cadastrados, podendo aplicar filtro por `tag`.
+    Caso nenhum filtro seja informado, lista apenas níveis habilitados.
+
+    ---
+    tags:
+      - Levels
+    produces:
+      - application/json
+    parameters:
+      - in: query
+        name: tag
+        required: false
+        type: string
+        description: "Filtrar níveis por categoria/tag (ex.: 'python', 'front', 'backend')"
+        example: "python"
+    responses:
+      200:
+        description: Lista de níveis
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id_level:
+                type: string
+                format: uuid
+              titulo:
+                type: string
+              tag:
+                type: string
+              nivel:
+                type: integer
+                description: "Número do nível"
+              xp_min:
+                type: integer
+                description: "XP mínimo necessário para atingir o nível"
+              xp_max:
+                type: integer
+                description: "XP máximo permitido antes de subir para o próximo nível"
+              descricao:
+                type: string
+              habilitado:
+                type: boolean
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+      400:
+        description: Erro nos parâmetros de consulta
     """
     tag = request.args.get("tag")
 
@@ -32,11 +84,57 @@ def list_levels():
 
     return jsonify(rows), 200
 
-
 @levels_bp.get("/<uuid:id_level>")
 def get_level(id_level):
     """
-    Detalhes de um nível específico.
+    Detalhar nível específico
+
+    Retorna os dados completos de um nível específico a partir do seu ID.
+
+    ---
+    tags:
+      - Levels
+    produces:
+      - application/json
+    parameters:
+      - in: path
+        name: id_level
+        required: true
+        type: string
+        format: uuid
+        description: "ID do nível (UUID)"
+    responses:
+      200:
+        description: "Nível encontrado"
+        schema:
+          type: object
+          properties:
+            id_level:
+              type: string
+              format: uuid
+            titulo:
+              type: string
+            tag:
+              type: string
+              description: "Categoria/área do nível (ex.: python, backend)"
+            nivel:
+              type: integer
+            xp_min:
+              type: integer
+            xp_max:
+              type: integer
+            descricao:
+              type: string
+            habilitado:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      404:
+        description: "Nível não encontrado"
     """
     row = one("""
         SELECT id_level, titulo, tag, nivel, xp_min, xp_max, descricao, habilitado,
@@ -50,11 +148,97 @@ def get_level(id_level):
 
     return jsonify(row), 200
 
-
 @levels_bp.post("/")
 def create_level():
     """
-    Cria um novo nível/título.
+    Criar novo nível
+
+    Cria um novo nível dentro de uma categoria/tag específica.
+
+    Body (JSON) esperado:
+
+    {
+      "titulo": "Iniciante",
+      "tag": "python",
+      "nivel": 1,
+      "xp_min": 0,
+      "xp_max": 100,
+      "descricao": "Primeiro nível da trilha Python."
+    }
+
+    ---
+    tags:
+      - Levels
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - titulo
+            - tag
+            - nivel
+          properties:
+            titulo:
+              type: string
+              description: "Título exibido para o nível"
+              example: "Iniciante"
+            tag:
+              type: string
+              description: "Categoria ou trilha deste nível (ex.: python, backend)"
+              example: "python"
+            nivel:
+              type: integer
+              description: "Número do nível (ordem dentro da trilha)"
+              example: 1
+            xp_min:
+              type: integer
+              description: "XP mínimo necessário para este nível (padrão: 0)"
+              example: 0
+            xp_max:
+              type: integer
+              description: "XP máximo antes de subir para o próximo nível"
+              example: 100
+            descricao:
+              type: string
+              description: "Descrição completa do nível"
+              example: "Primeiro nível da trilha Python."
+    responses:
+      201:
+        description: "Nível criado com sucesso"
+        schema:
+          type: object
+          properties:
+            id_level:
+              type: string
+              format: uuid
+            titulo:
+              type: string
+            tag:
+              type: string
+            nivel:
+              type: integer
+            xp_min:
+              type: integer
+            xp_max:
+              type: integer
+            descricao:
+              type: string
+            habilitado:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+      400:
+        description: "Campos obrigatórios ausentes ou inválidos"
     """
     data = request.get_json(force=True, silent=True) or {}
 
@@ -84,12 +268,107 @@ def create_level():
 
     return jsonify(row), 201
 
-
 @levels_bp.put("/<uuid:id_level>")
 @levels_bp.patch("/<uuid:id_level>")
 def update_level(id_level):
     """
-    Atualiza um nível/título.
+    Atualizar nível
+
+    Atualiza um nível/título existente.  
+    Aceita atualização parcial (PATCH) ou total (PUT).
+
+    Campos permitidos no body (todos opcionais):
+
+    {
+      "titulo": "Novo título",
+      "tag": "python",
+      "nivel": 2,
+      "xp_min": 100,
+      "xp_max": 300,
+      "descricao": "Descrição atualizada",
+      "habilitado": true
+    }
+
+    ---
+    tags:
+      - Levels
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: path
+        name: id_level
+        required: true
+        type: string
+        format: uuid
+        description: "ID do nível a ser atualizado (UUID)"
+
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            titulo:
+              type: string
+              example: "Intermediário"
+              description: "Título do nível"
+            tag:
+              type: string
+              example: "python"
+              description: "Trilha/categoria do nível"
+            nivel:
+              type: integer
+              example: 2
+            xp_min:
+              type: integer
+              example: 100
+            xp_max:
+              type: integer
+              example: 300
+            descricao:
+              type: string
+              example: "Nível para usuários com proficiência intermediária."
+            habilitado:
+              type: boolean
+              example: true
+
+    responses:
+      200:
+        description: "Nível atualizado com sucesso"
+        schema:
+          type: object
+          properties:
+            id_level:
+              type: string
+              format: uuid
+            titulo:
+              type: string
+            tag:
+              type: string
+            nivel:
+              type: integer
+            xp_min:
+              type: integer
+            xp_max:
+              type: integer
+            descricao:
+              type: string
+            habilitado:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+      400:
+        description: "Nenhum campo enviado para atualização"
+
+      404:
+        description: "Nível não encontrado"
     """
     data = request.get_json(force=True, silent=True) or {}
 
@@ -120,11 +399,37 @@ def update_level(id_level):
 
     return jsonify(row), 200
 
-
 @levels_bp.delete("/<uuid:id_level>")
 def delete_level(id_level):
     """
-    Desabilita (soft delete) um nível.
+    Desabilitar nível (soft delete)
+
+    Marca o nível como desabilitado (`habilitado = FALSE`), sem removê-lo
+    fisicamente do banco de dados.
+
+    ---
+    tags:
+      - Levels
+    produces:
+      - application/json
+    parameters:
+      - in: path
+        name: id_level
+        required: true
+        type: string
+        format: uuid
+        description: "ID do nível a ser desabilitado (UUID)"
+    responses:
+      200:
+        description: "Nível desabilitado com sucesso"
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Nível desabilitado com sucesso"
+      404:
+        description: "Nível não encontrado"
     """
     row = one("""
         UPDATE levels
@@ -143,18 +448,96 @@ def delete_level(id_level):
 @require_auth
 def add_xp_usuario(id_usuario):
     """
-    Adiciona XP ao usuário e atualiza automaticamente o level.
+    Adicionar XP ao usuário e recalcular nível
 
-    Body JSON:
+    Adiciona uma quantidade de XP ao usuário, recalcula automaticamente o nível
+    com base nas faixas de XP configuradas em `levels` e registra o histórico
+    da operação (origem, motivo, referência, responsável).
+
+    Body JSON esperado:
+
     {
-      "xp": 50,                 # obrigatório, inteiro (pode ser negativo)
-      "motivo": "atividade",    # opcional
-      "origem": "ATIVIDADE",    # opcional (ADMIN, ATIVIDADE, PROJETO, etc.)
-      "referencia": {           # opcional (guardado como JSONB)
-        "id_projeto": "...",
-        "id_atividade": "..."
+      "xp": 50,
+      "motivo": "atividade prática de Python",
+      "origem": "ATIVIDADE",
+      "referencia": {
+        "id_projeto": "uuid-do-projeto",
+        "id_atividade": "uuid-da-atividade"
       }
     }
+
+    - `xp` é obrigatório e deve ser inteiro (positivo ou negativo).
+    - `motivo`, `origem` e `referencia` são opcionais.
+    - `referencia` é armazenado como JSONB (estrutura livre).
+
+    ---
+    tags:
+      - XP
+    security:
+      - Bearer: []
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+      - in: path
+        name: id_usuario
+        required: true
+        type: string
+        format: uuid
+        description: "ID do usuário que receberá o XP (UUID)"
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - xp
+          properties:
+            xp:
+              type: integer
+              description: "Quantidade de XP a ser adicionada (pode ser negativa)"
+              example: 50
+            motivo:
+              type: string
+              description: "Motivo ou descrição da ação que gerou o XP"
+              example: "Entrega da atividade de banco de dados"
+            origem:
+              type: string
+              description: "Origem do XP (ADMIN, ATIVIDADE, PROJETO, SISTEMA, etc.)"
+              example: "ATIVIDADE"
+            referencia:
+              type: object
+              description: "Dados de referência relacionados ao XP (armazenado como JSONB)"
+              example:
+                id_projeto: "f9dfd8e4-9b51-4e66-9bf3-1b7f4f9a1234"
+                id_atividade: "3a4b79ec-2f8e-4b9e-8da5-a6ce91234567"
+    responses:
+      200:
+        description: "XP atualizado, nível recalculado e histórico registrado com sucesso"
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "XP atualizado, level recalculado e histórico registrado com sucesso"
+            usuario:
+              type: object
+              description: "Dados atualizados do usuário após a mudança de XP/nível"
+            level:
+              type: object
+              description: "Dados do nível atual do usuário após o recálculo"
+      400:
+        description: "Erro de validação (xp ausente ou não inteiro)"
+      401:
+        description: "Não autenticado"
+      404:
+        description: "Usuário não encontrado"
     """
     data = request.get_json(force=True, silent=True) or {}
 
@@ -194,9 +577,54 @@ def add_xp_usuario(id_usuario):
 @require_auth
 def recalc_level_usuario(id_usuario):
     """
-    Recalcula o xp_total do usuário com base no histórico de XP
-    (usuarios_xp_historico) e, em seguida, recalcula o level
-    com base nesse novo xp_total.
+    Recalcular XP e level do usuário a partir do histórico
+
+    Recalcula o `xp_total` do usuário somando todos os registros do
+    histórico `usuarios_xp_historico` e, em seguida, recalcula o nível
+    com base nas faixas de XP configuradas na tabela `levels`.
+
+    Útil para:
+    - corrigir inconsistências de XP/level
+    - reconstruir XP após ajustes manuais no histórico
+
+    ---
+    tags:
+      - XP
+    security:
+      - Bearer: []
+    produces:
+      - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+      - in: path
+        name: id_usuario
+        required: true
+        type: string
+        format: uuid
+        description: "ID do usuário que terá XP e level recalculados"
+    responses:
+      200:
+        description: "XP recalculado a partir do histórico e level atualizado com sucesso"
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "XP recalculado a partir do histórico e level atualizado com sucesso"
+            usuario:
+              type: object
+              description: "Dados atualizados do usuário após o recálculo de XP/level"
+            level:
+              type: object
+              description: "Dados do nível atual do usuário"
+      401:
+        description: "Não autenticado"
+      404:
+        description: "Usuário não encontrado"
     """
     result = recalcular_xp_e_level_por_historico(id_usuario)
 
