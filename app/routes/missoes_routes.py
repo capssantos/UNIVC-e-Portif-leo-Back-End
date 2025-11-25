@@ -10,7 +10,6 @@ load_dotenv()
 
 missoes_bp = Blueprint("missoes", __name__, url_prefix="/missoes")
 
-
 def _is_admin_or_professor():
     """
     Verifica se o usuário autenticado possui permissão suficiente
@@ -39,12 +38,12 @@ def list_missoes():
     """
     Listar missões
 
-    Retorna a lista de missões com suporte a filtros por tag
-    e por habilitado.
+    Retorna a lista de missões cadastradas, com suporte a filtros por tag
+    e opção para exibir missões desabilitadas.
 
     Query params opcionais:
       - tag=RAPIDA
-      - include_disabled=true (para trazer também desabilitadas)
+      - include_disabled=true
 
     ---
     tags:
@@ -53,6 +52,60 @@ def list_missoes():
       - Bearer: []
     produces:
       - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+
+      - in: query
+        name: tag
+        required: false
+        type: string
+        description: "Filtra missões por tag (ex.: RAPIDA, DIARIA, SEMANAL)"
+
+      - in: query
+        name: include_disabled
+        required: false
+        type: boolean
+        default: false
+        description: "Se true, retorna também missões desabilitadas (habilitado = FALSE)"
+
+    responses:
+      200:
+        description: Lista de missões encontradas
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id_missao:
+                type: string
+                format: uuid
+              titulo:
+                type: string
+              descricao:
+                type: string
+              tag:
+                type: string
+                example: "RAPIDA"
+              xp_reward:
+                type: integer
+                example: 50
+              ordem:
+                type: integer
+                example: 1
+              habilitado:
+                type: boolean
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+      401:
+        description: Não autenticado
     """
     tag = request.args.get("tag")
     include_disabled = request.args.get("include_disabled", "false").lower() == "true"
@@ -85,7 +138,10 @@ def list_missoes():
 @require_auth
 def get_missao(id_missao):
     """
-    Detalhar uma missão específica.
+    Detalhar missão específica
+
+    Retorna todos os dados de uma missão a partir do seu ID.
+
     ---
     tags:
       - Missões
@@ -93,6 +149,57 @@ def get_missao(id_missao):
       - Bearer: []
     produces:
       - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+
+      - in: path
+        name: id_missao
+        required: true
+        type: string
+        format: uuid
+        description: "ID da missão (UUID)"
+
+    responses:
+      200:
+        description: "Missão encontrada com sucesso"
+        schema:
+          type: object
+          properties:
+            id_missao:
+              type: string
+              format: uuid
+            titulo:
+              type: string
+            descricao:
+              type: string
+            tag:
+              type: string
+              example: "RAPIDA"
+            xp_reward:
+              type: integer
+              example: 50
+            ordem:
+              type: integer
+              description: "Ordem de exibição (para ordenação no front)"
+            habilitado:
+              type: boolean
+              example: true
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+      404:
+        description: "Missão não encontrada"
+
+      401:
+        description: "Não autenticado"
     """
     row = one("""
         SELECT id_missao, titulo, descricao, tag, xp_reward, ordem,
@@ -112,16 +219,22 @@ def create_missao():
     """
     Criar nova missão
 
-    Apenas ADMIN ou PROFESSOR podem criar missões.
+    Cria uma nova missão no sistema.  
+    Apenas usuários com permissão **ADMIN** ou **PROFESSOR** podem criar missões.
 
-    Body (JSON):
+    Exemplo de body (JSON):
     {
       "titulo": "Registrar reflexão (3-5 linhas)",
-      "descricao": "Aluno registra uma reflexão curta...",
+      "descricao": "Aluno registra uma reflexão curta sobre a aula de hoje.",
       "tag": "RAPIDA",
       "xp_reward": 20,
       "ordem": 1
     }
+
+    Regras:
+      - `titulo` e `xp_reward` são obrigatórios.
+      - `tag` pode ser usada para categorizar missões (RAPIDA, DIARIA, SEMANAL, etc.)
+      - `ordem` define posição na lista (para exibição no front).
 
     ---
     tags:
@@ -132,6 +245,75 @@ def create_missao():
       - application/json
     produces:
       - application/json
+
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - titulo
+            - xp_reward
+          properties:
+            titulo:
+              type: string
+              example: "Registrar reflexão (3-5 linhas)"
+            descricao:
+              type: string
+              example: "Aluno registra uma reflexão curta sobre o conteúdo da aula."
+            tag:
+              type: string
+              example: "RAPIDA"
+              description: "Categoria da missão (ex.: RAPIDA, DIARIA, SEMANAL)"
+            xp_reward:
+              type: integer
+              example: 20
+              description: "Quantidade de XP atribuída ao concluir a missão"
+            ordem:
+              type: integer
+              example: 1
+              description: "Define a ordem de exibição"
+
+    responses:
+      201:
+        description: "Missão criada com sucesso"
+        schema:
+          type: object
+          properties:
+            id_missao:
+              type: string
+              format: uuid
+            titulo:
+              type: string
+            descricao:
+              type: string
+            tag:
+              type: string
+            xp_reward:
+              type: integer
+            ordem:
+              type: integer
+            habilitado:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+      400:
+        description: "Erro de validação (faltando campos obrigatórios)"
+
+      403:
+        description: "Usuário não possui permissão para criar missões"
     """
     if not _is_admin_or_professor():
         return jsonify({"error": "Permissão insuficiente"}), 403
@@ -171,13 +353,14 @@ def update_missao(id_missao):
     """
     Atualizar missão
 
-    Permite alterar título, descrição, tag, xp_reward e ordem.
-    Apenas ADMIN ou PROFESSOR.
+    Atualiza os dados de uma missão existente.  
+    Apenas usuários com permissão **ADMIN** ou **PROFESSOR** podem alterar missões.
 
-    Body (JSON) – todos opcionais:
+    Body (JSON) – todos os campos são opcionais:
+
     {
-      "titulo": "...",
-      "descricao": "...",
+      "titulo": "Nova descrição curta",
+      "descricao": "Texto completo explicando a missão",
       "tag": "RAPIDA",
       "xp_reward": 25,
       "ordem": 2,
@@ -193,6 +376,90 @@ def update_missao(id_missao):
       - application/json
     produces:
       - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+
+      - in: path
+        name: id_missao
+        required: true
+        type: string
+        format: uuid
+        description: "ID da missão a ser atualizada (UUID)"
+
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            titulo:
+              type: string
+              description: "Novo título da missão"
+              example: "Registrar insight sobre a aula"
+            descricao:
+              type: string
+              description: "Descrição detalhada da missão"
+              example: "Aluno deve registrar um insight sobre o conteúdo estudado hoje."
+            tag:
+              type: string
+              description: "Categoria da missão (ex.: RAPIDA, DIARIA, SEMANAL)"
+              example: "RAPIDA"
+            xp_reward:
+              type: integer
+              description: "XP concedido ao concluir esta missão"
+              example: 25
+            ordem:
+              type: integer
+              description: "Ordem de exibição da missão na lista"
+              example: 2
+            habilitado:
+              type: boolean
+              description: "Define se a missão está ativa/visível"
+              example: true
+
+    responses:
+      200:
+        description: "Missão atualizada com sucesso"
+        schema:
+          type: object
+          properties:
+            id_missao:
+              type: string
+              format: uuid
+            titulo:
+              type: string
+            descricao:
+              type: string
+            tag:
+              type: string
+            xp_reward:
+              type: integer
+            ordem:
+              type: integer
+            habilitado:
+              type: boolean
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+
+      400:
+        description: "Nenhum campo para atualizar"
+
+      401:
+        description: "Não autenticado"
+
+      403:
+        description: "Permissão insuficiente (não ADMIN/PROFESSOR)"
+
+      404:
+        description: "Missão não encontrada"
     """
     if not _is_admin_or_professor():
         return jsonify({"error": "Permissão insuficiente"}), 403
@@ -243,9 +510,13 @@ def update_missao(id_missao):
 @require_auth
 def toggle_missao(id_missao):
     """
-    Alternar habilitado/desabilitado da missão.
+    Alternar estado da missão (habilitar/desabilitar)
 
-    Apenas ADMIN ou PROFESSOR.
+    Alterna automaticamente o campo `habilitado` de uma missão:
+    - Se estiver habilitada → será desabilitada  
+    - Se estiver desabilitada → será habilitada  
+
+    Apenas usuários com permissão **ADMIN** ou **PROFESSOR** podem executar esta ação.
 
     ---
     tags:
@@ -254,6 +525,63 @@ def toggle_missao(id_missao):
       - Bearer: []
     produces:
       - application/json
+
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+
+      - in: path
+        name: id_missao
+        required: true
+        type: string
+        format: uuid
+        description: "ID da missão (UUID)"
+
+    responses:
+      200:
+        description: "Estado da missão alterado com sucesso"
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Missão habilitada com sucesso."
+            missao:
+              type: object
+              properties:
+                id_missao:
+                  type: string
+                  format: uuid
+                titulo:
+                  type: string
+                descricao:
+                  type: string
+                tag:
+                  type: string
+                xp_reward:
+                  type: integer
+                ordem:
+                  type: integer
+                habilitado:
+                  type: boolean
+                created_at:
+                  type: string
+                  format: date-time
+                updated_at:
+                  type: string
+                  format: date-time
+
+      401:
+        description: "Não autenticado"
+
+      403:
+        description: "Permissão insuficiente (não ADMIN/PROFESSOR)"
+
+      404:
+        description: "Missão não encontrada"
     """
     if not _is_admin_or_professor():
         return jsonify({"error": "Permissão insuficiente"}), 403
@@ -281,12 +609,97 @@ def toggle_missao(id_missao):
 @require_auth
 def concluir_missao(id_missao):
     """
-    Concluir missão para o usuário autenticado.
+    Concluir missão para o usuário autenticado
 
-    - Registra em missoes_usuarios (para não repetir)
-    - Usa adicionar_xp_usuario para somar XP e registrar histórico
+    Marca uma missão como concluída para o usuário autenticado, registra
+    a conclusão em `missoes_usuarios` e utiliza `adicionar_xp_usuario`
+    para somar XP, registrar histórico e recalcular o nível do usuário.
+
+    Regras:
+      - Usuário precisa estar autenticado.
+      - A missão deve existir e estar habilitada.
+      - Uma missão só pode ser concluída uma vez por usuário
+        (se já concluída, retorna 409).
+
+    ---
+    tags:
+      - Missões
+    security:
+      - Bearer: []
+    produces:
+      - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+
+      - in: path
+        name: id_missao
+        required: true
+        type: string
+        format: uuid
+        description: "ID da missão a ser concluída (UUID)"
+
+    responses:
+      201:
+        description: "Missão concluída, XP somado e nível recalculado com sucesso"
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Missão concluída, XP somado e nível recalculado com sucesso."
+            missao:
+              type: object
+              properties:
+                id_missao:
+                  type: string
+                  format: uuid
+                titulo:
+                  type: string
+                xp_reward:
+                  type: integer
+                  example: 20
+            registro_missao:
+              type: object
+              description: "Registro na tabela missoes_usuarios"
+              properties:
+                id_missao_usuario:
+                  type: string
+                  format: uuid
+                id_missao:
+                  type: string
+                  format: uuid
+                id_usuario:
+                  type: string
+                  format: uuid
+                concluida_em:
+                  type: string
+                  format: date-time
+            usuario:
+              type: object
+              description: "Dados atualizados do usuário após a conclusão da missão"
+            level:
+              type: object
+              description: "Level atual do usuário após o recálculo"
+
+      400:
+        description: "Missão desabilitada ou erro de regra de negócio"
+
+      401:
+        description: "Usuário não autenticado"
+
+      404:
+        description: "Missão não encontrada"
+
+      409:
+        description: "Missão já foi concluída anteriormente por este usuário"
+
+      500:
+        description: "Erro ao atualizar XP do usuário"
     """
-
     id_usuario = getattr(g, "user_id", None)
     if not id_usuario:
         return jsonify({"error": "Usuário não autenticado"}), 401
@@ -355,15 +768,21 @@ def concluir_missao(id_missao):
         "level": result_xp["level"]
     }), 201
 
-
 @missoes_bp.get("/minhas")
 @require_auth
 def minhas_missoes():
     """
-    Lista missões com o status de conclusão para o usuário autenticado.
+    Listar missões do usuário autenticado
 
-    Query param:
-      - show_completed=true  (por padrão NÃO mostra as concluídas)
+    Retorna as missões disponíveis para o usuário autenticado, indicando
+    se já foram concluídas ou não.
+
+    Por padrão, **não** traz missões já concluídas.  
+    Use o query param `show_completed=true` para incluí-las.
+
+    Exemplo de uso:
+      - `GET /missoes/minhas`
+      - `GET /missoes/minhas?show_completed=true`
 
     ---
     tags:
@@ -372,6 +791,65 @@ def minhas_missoes():
       - Bearer: []
     produces:
       - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+
+      - in: query
+        name: show_completed
+        required: false
+        type: boolean
+        default: false
+        description: >
+          Se true, inclui missões já concluídas pelo usuário.
+          Se false (padrão), retorna apenas missões ainda não concluídas.
+
+    responses:
+      200:
+        description: "Lista de missões do usuário autenticado, com status de conclusão"
+        schema:
+          type: array
+          items:
+            type: object
+            properties:
+              id_missao:
+                type: string
+                format: uuid
+              titulo:
+                type: string
+              descricao:
+                type: string
+              tag:
+                type: string
+                example: "RAPIDA"
+              xp_reward:
+                type: integer
+                example: 20
+              ordem:
+                type: integer
+                example: 1
+              habilitado:
+                type: boolean
+              created_at:
+                type: string
+                format: date-time
+              updated_at:
+                type: string
+                format: date-time
+              concluida:
+                type: boolean
+                description: "Indica se o usuário já concluiu esta missão"
+                example: false
+              concluida_em:
+                type: string
+                format: date-time
+                nullable: true
+                description: "Data/hora de conclusão da missão (se concluída)"
+      401:
+        description: "Usuário não autenticado"
     """
     user_id = getattr(g, "user_id", None)
     if not user_id:
@@ -413,9 +891,13 @@ def minhas_missoes():
 @require_auth
 def relatorio_missao(id_missao):
     """
-    Relatório de usuários que concluíram uma missão.
+    Relatório de usuários que concluíram uma missão
 
-    Apenas ADMIN ou PROFESSOR.
+    Retorna os dados da missão e a lista de usuários que já concluíram
+    essa missão, com data/hora de conclusão.
+
+    Apenas usuários com permissão **ADMIN** ou **PROFESSOR** podem acessar
+    este relatório.
 
     ---
     tags:
@@ -424,6 +906,62 @@ def relatorio_missao(id_missao):
       - Bearer: []
     produces:
       - application/json
+    parameters:
+      - in: header
+        name: Authorization
+        required: true
+        type: string
+        description: "Token JWT no formato Bearer <token>"
+
+      - in: path
+        name: id_missao
+        required: true
+        type: string
+        format: uuid
+        description: "ID da missão (UUID) a ser consultada"
+
+    responses:
+      200:
+        description: "Relatório de usuários que concluíram a missão"
+        schema:
+          type: object
+          properties:
+            missao:
+              type: object
+              properties:
+                id_missao:
+                  type: string
+                  format: uuid
+                titulo:
+                  type: string
+                xp_reward:
+                  type: integer
+            total_concluida:
+              type: integer
+              description: "Quantidade total de usuários que concluíram a missão"
+              example: 12
+            usuarios:
+              type: array
+              description: "Lista de usuários que concluíram a missão"
+              items:
+                type: object
+                properties:
+                  id_usuario:
+                    type: string
+                    format: uuid
+                  nome:
+                    type: string
+                  email:
+                    type: string
+                  concluida_em:
+                    type: string
+                    format: date-time
+      401:
+        description: "Não autenticado"
+      403:
+        description: "Permissão insuficiente (não ADMIN/PROFESSOR)"
+      404:
+        description: "Missão não encontrada"
     """
     if not _is_admin_or_professor():
         return jsonify({"error": "Permissão insuficiente"}), 403
