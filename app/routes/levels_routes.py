@@ -1,6 +1,8 @@
 # app/blueprints/levels.py
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from ..models.db import one, many, run
+from ..models.xp import adicionar_xp_usuario, recalcular_xp_e_level_por_historico
+from ..models.auth import require_auth
 
 levels_bp = Blueprint("levels", __name__, url_prefix="/levels")
 
@@ -136,3 +138,73 @@ def delete_level(id_level):
         return jsonify({"error": "Nível não encontrado"}), 404
 
     return jsonify({"message": "Nível desabilitado com sucesso"}), 200
+
+@levels_bp.post("/<uuid:id_usuario>/xp/add")
+@require_auth
+def add_xp_usuario(id_usuario):
+    """
+    Adiciona XP ao usuário e atualiza automaticamente o level.
+
+    Body JSON:
+    {
+      "xp": 50,                 # obrigatório, inteiro (pode ser negativo)
+      "motivo": "atividade",    # opcional
+      "origem": "ATIVIDADE",    # opcional (ADMIN, ATIVIDADE, PROJETO, etc.)
+      "referencia": {           # opcional (guardado como JSONB)
+        "id_projeto": "...",
+        "id_atividade": "..."
+      }
+    }
+    """
+    data = request.get_json(force=True, silent=True) or {}
+
+    xp = data.get("xp")
+    if xp is None:
+        return jsonify({"error": "Campo 'xp' é obrigatório"}), 400
+
+    try:
+        xp = int(xp)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Campo 'xp' deve ser inteiro"}), 400
+
+    motivo = data.get("motivo")
+    origem = data.get("origem")
+    referencia = data.get("referencia")  # dict -> vai como JSONB
+    id_responsavel = getattr(g, "user_id", None)
+
+    result = adicionar_xp_usuario(
+        id_usuario=id_usuario,
+        delta_xp=xp,
+        motivo=motivo,
+        origem=origem,
+        referencia=referencia,
+        id_responsavel=id_responsavel,
+    )
+
+    if not result:
+        return jsonify({"error": "Usuário não encontrado"}), 404
+
+    return jsonify({
+        "message": "XP atualizado, level recalculado e histórico registrado com sucesso",
+        "usuario": result["usuario"],
+        "level": result["level"]
+    }), 200
+
+@levels_bp.post("/<uuid:id_usuario>/level/recalc")
+@require_auth
+def recalc_level_usuario(id_usuario):
+    """
+    Recalcula o xp_total do usuário com base no histórico de XP
+    (usuarios_xp_historico) e, em seguida, recalcula o level
+    com base nesse novo xp_total.
+    """
+    result = recalcular_xp_e_level_por_historico(id_usuario)
+
+    if not result:
+        return jsonify({"error": "Usuário não encontrado"}), 404
+
+    return jsonify({
+        "message": "XP recalculado a partir do histórico e level atualizado com sucesso",
+        "usuario": result["usuario"],
+        "level": result["level"]
+    }), 200
