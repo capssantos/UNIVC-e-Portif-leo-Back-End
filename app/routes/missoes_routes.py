@@ -32,7 +32,7 @@ def _is_admin_or_professor():
 
     return permissao in permissoes_validas
 
-@missoes_bp.get("/")
+@missoes_bp.get("")
 @require_auth
 def list_missoes():
     """
@@ -213,7 +213,7 @@ def get_missao(id_missao):
 
     return jsonify(row), 200
 
-@missoes_bp.post("/")
+@missoes_bp.post("")
 @require_auth
 def create_missao():
     """

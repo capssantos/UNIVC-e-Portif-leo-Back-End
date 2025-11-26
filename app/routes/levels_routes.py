@@ -6,7 +6,8 @@ from ..models.auth import require_auth
 
 levels_bp = Blueprint("levels", __name__, url_prefix="/levels")
 
-@levels_bp.get("/")
+@levels_bp.get("")
+@require_auth
 def list_levels():
     """
     Listar níveis (com filtros opcionais)
@@ -85,6 +86,7 @@ def list_levels():
     return jsonify(rows), 200
 
 @levels_bp.get("/<uuid:id_level>")
+@require_auth
 def get_level(id_level):
     """
     Detalhar nível específico
@@ -148,7 +150,8 @@ def get_level(id_level):
 
     return jsonify(row), 200
 
-@levels_bp.post("/")
+@levels_bp.post("")
+@require_auth
 def create_level():
     """
     Criar novo nível
@@ -270,6 +273,7 @@ def create_level():
 
 @levels_bp.put("/<uuid:id_level>")
 @levels_bp.patch("/<uuid:id_level>")
+@require_auth
 def update_level(id_level):
     """
     Atualizar nível
@@ -400,6 +404,7 @@ def update_level(id_level):
     return jsonify(row), 200
 
 @levels_bp.delete("/<uuid:id_level>")
+@require_auth
 def delete_level(id_level):
     """
     Desabilitar nível (soft delete)

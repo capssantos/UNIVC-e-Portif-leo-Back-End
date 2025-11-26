@@ -53,7 +53,7 @@ def _is_admin():
 
     return row.get("permissao") == "ADMIN"
 
-@cursos_bp.post("/")
+@cursos_bp.post("")
 @require_auth
 def create_curso():
     """
@@ -171,7 +171,7 @@ def create_curso():
 
     return jsonify({"message": "Curso criado com sucesso", "curso": row}), 201
 
-@cursos_bp.get("/")
+@cursos_bp.get("")
 def list_cursos():
     """
     Listagem de cursos

@@ -1,6 +1,7 @@
--- Remove índices (opcional, pois DROP TABLE já remove, mas é bom ser explícito)
-DROP INDEX IF EXISTS idx_projetos_tags;
-DROP INDEX IF EXISTS idx_projetos_usuario;
-
--- Remove a tabela de projetos
-DROP TABLE IF EXISTS projetos;
+ALTER TABLE projetos
+    DROP CONSTRAINT IF EXISTS chk_projetos_xp_conclusao,
+    DROP CONSTRAINT IF EXISTS chk_projetos_status,
+    DROP COLUMN IF EXISTS xp_conclusao,
+    DROP COLUMN IF EXISTS data_inicio,
+    DROP COLUMN IF EXISTS data_fim,
+    DROP COLUMN IF EXISTS status;
