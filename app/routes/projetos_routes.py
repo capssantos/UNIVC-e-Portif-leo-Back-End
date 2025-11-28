@@ -680,7 +680,7 @@ def create_projeto():
               format: date-time
             selos:
               type: array
-              description: "Lista de selos efetivamente vinculados ao projeto"
+              description: "Lista de selos efetivamente vinculados ao projeto (UUIDs)"
               items:
                 type: string
                 format: uuid
@@ -720,7 +720,7 @@ def create_projeto():
     selos            = data.get("selos")  # NOVO CAMPO
 
     xp_conclusao     = data.get("xp_conclusao", 0)
-    data_inicio      = data.get("data_inicio") or None  # se vier string vazia, trata como None
+    data_inicio      = data.get("data_inicio") or None
     data_fim         = data.get("data_fim") or None
 
     # Se vier None, vira lista vazia
@@ -750,13 +750,12 @@ def create_projeto():
     if not isinstance(selos, list):
         return jsonify({"error": "selos deve ser uma lista de UUIDs"}), 400
 
-    # normaliza para string e remove duplicados
+    # normaliza para string e remove duplicados preservando ordem
     selos_str = [str(s) for s in selos]
-    selos_unicos = list(dict.fromkeys(selos_str))  # preserva ordem
+    selos_unicos = list(dict.fromkeys(selos_str))
 
     selos_validos_ids = []
     if selos_unicos:
-        # busca apenas selos habilitados
         rows_selos = many(
             """
             SELECT id_selo
@@ -775,7 +774,8 @@ def create_projeto():
                 "selos_invalidos": invalidos
             }), 400
 
-        selos_validos_ids = list(encontrados)
+        # mantém só os válidos, na mesma ordem da requisição
+        selos_validos_ids = [s for s in selos_unicos if s in encontrados]
 
     # ---------- Criação do projeto ----------
     row = one("""
@@ -829,16 +829,33 @@ def create_projeto():
     # ---------- Vincular selos ao projeto ----------
     id_projeto = row["id_projeto"]
 
+    # Aqui usamos a tabela usuarios_selos com JSONB referencia->'id_projeto'
+    # para marcar que estes selos estão vinculados a este projeto.
+    from ..models.db import run  # garante que run está importado (se já não estiver no topo)
+
     for id_selo in selos_validos_ids:
         run(
             """
-            INSERT INTO usuarios_selos (id_projeto, id_selo)
-            VALUES (%(id_projeto)s, %(id_selo)s)
-            ON CONFLICT (id_projeto, id_selo) DO NOTHING
+            INSERT INTO usuarios_selos
+                (id_usuario, id_selo, motivo, origem, referencia, habilitado)
+            VALUES
+                (%(id_usuario)s,
+                 %(id_selo)s,
+                 %(motivo)s,
+                 'PROJETO',
+                 jsonb_build_object('id_projeto', %(id_projeto)s),
+                 TRUE)
+            ON CONFLICT (id_usuario, id_selo) DO NOTHING
             """,
-            {"id_projeto": id_projeto, "id_selo": id_selo},
+            {
+                "id_usuario": user_id,
+                "id_selo": id_selo,
+                "motivo": f"Selo vinculado ao projeto '{titulo}'",
+                "id_projeto": id_projeto,
+            },
         )
 
+    # devolve os IDs de selos efetivamente vinculados
     row["selos"] = selos_validos_ids
 
     return jsonify(row), 201
@@ -880,86 +897,15 @@ def get_projeto(id_projeto):
         description: "ID do projeto (UUID)"
     responses:
       200:
-        description: Projeto encontrado
-        schema:
-          type: object
-          properties:
-            id_projeto:
-              type: string
-              format: uuid
-            id_usuario:
-              type: string
-              format: uuid
-            titulo:
-              type: string
-            descricao:
-              type: string
-            texto:
-              type: string
-            imagem_atividade:
-              type: string
-            tags:
-              type: array
-              items:
-                type: string
-            xp_conclusao:
-              type: integer
-            data_inicio:
-              type: string
-              format: date-time
-              nullable: true
-            data_fim:
-              type: string
-              format: date-time
-              nullable: true
-            status:
-              type: string
-            percentual_conclusao:
-              type: number
-              format: float
-            habilitado:
-              type: boolean
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-            selos:
-              type: array
-              description: "Selos associados a este projeto."
-              items:
-                type: object
-                properties:
-                  id_selo:
-                    type: string
-                    format: uuid
-                  titulo:
-                    type: string
-                  slug:
-                    type: string
-                  descricao:
-                    type: string
-                  icone:
-                    type: string
-                  cor_inicio:
-                    type: string
-                  cor_fim:
-                    type: string
-                  tipo:
-                    type: string
-                  ordem:
-                    type: integer
-      401:
-        description: "Não autenticado"
+        description: "Projeto encontrado com sucesso."
       404:
-        description: "Projeto não encontrado"
+        description: "Projeto não encontrado."
     """
     headers_dict = dict(request.headers)
-    print(f"[PROJ ID  ] - Headers: {headers_dict}")
-    print(f"[PROJ ID  ] - ID_PROJETO: {id_projeto}")
+    print(f"[PROJ ID] - Headers: {headers_dict}")
+    print(f"[PROJ ID] - ID_PROJETO: {id_projeto}")
 
-    # ---- dados básicos do projeto ----
+    # ---------- BUSCAR DADOS DO PROJETO ----------
     row = one("""
         SELECT
             id_projeto,
@@ -983,31 +929,32 @@ def get_projeto(id_projeto):
     if not row:
         return jsonify({"error": "Projeto não encontrado"}), 404
 
-    # ---- cálculo da % de conclusão baseada em data_inicio / data_fim ----
+    # ---------- CALCULAR PERCENTUAL ----------
     agora = datetime.utcnow()
     data_inicio = row.get("data_inicio")
     data_fim    = row.get("data_fim")
 
     percentual = 0.0
-
     if data_inicio and data_fim and data_fim > data_inicio:
-        total_segundos = (data_fim - data_inicio).total_seconds()
-        elapsed_segundos = (agora - data_inicio).total_seconds()
+        total = (data_fim - data_inicio).total_seconds()
+        elapsed = (agora - data_inicio).total_seconds()
 
-        if elapsed_segundos <= 0:
+        if elapsed <= 0:
             percentual = 0.0
-        elif elapsed_segundos >= total_segundos:
+        elif elapsed >= total:
             percentual = 100.0
         else:
-            percentual = (elapsed_segundos / total_segundos) * 100.0
+            percentual = (elapsed / total) * 100.0
 
     row["percentual_conclusao"] = round(percentual, 2)
 
-    # ---- carregar selos associados ao projeto ----
+    # ============================================================
+    #  CARREGAR SELOS DO PROJETO VIA JSONB referencia -> id_projeto
+    # ============================================================
     selos_rows = many(
         """
         SELECT
-            ps.id_projeto,
+            us.id_usuario_selo,
             s.id_selo,
             s.titulo,
             s.slug,
@@ -1017,13 +964,13 @@ def get_projeto(id_projeto):
             s.cor_fim,
             s.tipo,
             s.ordem
-        FROM usuarios_selos ps
-        JOIN selos s
-          ON s.id_selo = ps.id_selo
-        WHERE ps.id_projeto = %(id_projeto)s
+        FROM usuarios_selos us
+        JOIN selos s ON s.id_selo = us.id_selo
+        WHERE us.referencia->>'id_projeto' = %(id)s::text
+          AND us.habilitado = TRUE
         ORDER BY s.ordem ASC, s.titulo ASC
         """,
-        {"id_projeto": id_projeto},
+        {"id": str(id_projeto)}
     )
 
     selos = []
@@ -1094,174 +1041,6 @@ def update_projeto(id_projeto):
       - application/json
     produces:
       - application/json
-
-    parameters:
-      - in: header
-        name: Authorization
-        required: true
-        type: string
-        description: "Token JWT no formato Bearer <token>"
-
-      - in: path
-        name: id_projeto
-        required: true
-        type: string
-        format: uuid
-        description: "ID do projeto a ser atualizado (UUID)"
-
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          properties:
-            titulo:
-              type: string
-              description: "Novo título do projeto"
-              example: "Plataforma de Portfólio Gamificada"
-            descricao:
-              type: string
-              description: "Resumo atualizado do projeto"
-            texto:
-              type: string
-              description: "Descrição longa em markdown/HTML"
-            imagem_atividade:
-              type: string
-              description: "URL da imagem de capa do projeto"
-              example: "https://cdn.meus-arquivos.com/projetos/capa.png"
-            tags:
-              type: array
-              description: "Lista de tags associadas ao projeto"
-              items:
-                type: string
-              example: ["python", "backend", "flask"]
-            habilitado:
-              type: boolean
-              description: "Define se o projeto está habilitado/visível"
-              example: true
-            xp_conclusao:
-              type: integer
-              description: "XP concedido ao aluno quando concluir o projeto"
-              example: 150
-            data_inicio:
-              type: string
-              format: date-time
-              description: "Data/hora de início previsto do projeto"
-              example: "2025-02-10T19:30:00Z"
-            data_fim:
-              type: string
-              format: date-time
-              description: "Data/hora de término previsto do projeto"
-              example: "2025-03-10T23:59:59Z"
-            status:
-              type: string
-              description: "Novo status do projeto"
-              enum:
-                - AGUARDANDO_INICIO
-                - EM_ANDAMENTO
-                - PAUSADO
-                - CANCELADO
-                - CONCLUIDO
-              example: "EM_ANDAMENTO"
-            selos:
-              type: array
-              description: >
-                Lista de IDs de selos associados ao projeto. Quando enviada,
-                substitui completamente os vínculos atuais:
-                - lista vazia [] remove todos os selos
-                - campo ausente mantém os selos atuais
-              items:
-                type: string
-                format: uuid
-              example:
-                - "11111111-1111-1111-1111-111111111111"
-                - "22222222-2222-2222-2222-222222222222"
-
-    responses:
-      200:
-        description: "Projeto atualizado com sucesso"
-        schema:
-          type: object
-          properties:
-            id_projeto:
-              type: string
-              format: uuid
-            id_usuario:
-              type: string
-              format: uuid
-            titulo:
-              type: string
-            descricao:
-              type: string
-            texto:
-              type: string
-            imagem_atividade:
-              type: string
-            tags:
-              type: array
-              items:
-                type: string
-            xp_conclusao:
-              type: integer
-            data_inicio:
-              type: string
-              format: date-time
-            data_fim:
-              type: string
-              format: date-time
-            status:
-              type: string
-            habilitado:
-              type: boolean
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-            selos:
-              type: array
-              description: "Selos associados ao projeto após a atualização."
-              items:
-                type: object
-                properties:
-                  id_selo:
-                    type: string
-                    format: uuid
-                  titulo:
-                    type: string
-                  slug:
-                    type: string
-                  descricao:
-                    type: string
-                  icone:
-                    type: string
-                  cor_inicio:
-                    type: string
-                  cor_fim:
-                    type: string
-                  tipo:
-                    type: string
-                  ordem:
-                    type: integer
-
-      400:
-        description: |
-          Erro de validação ou regra de negócio, por exemplo:
-            - xp_conclusao inválido
-            - status inválido
-            - nenhum campo enviado
-            - projeto já está CONCLUIDO
-            - selos inválidos (não existem ou estão desabilitados)
-
-      401:
-        description: "Nenhum usuário autenticado"
-
-      403:
-        description: "Usuário não é dono do projeto ou não possui permissão (não é ADMIN/PROFESSOR)"
-
-      404:
-        description: "Projeto não encontrado"
     """
     headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
@@ -1378,7 +1157,6 @@ def update_projeto(id_projeto):
 
     if alterar_selos:
         selos_body = data.get("selos")
-
         if selos_body is None:
             selos_body = []
 
@@ -1386,7 +1164,7 @@ def update_projeto(id_projeto):
             return jsonify({"error": "selos deve ser uma lista de UUIDs"}), 400
 
         selos_str = [str(s) for s in selos_body]
-        selos_unicos = list(dict.fromkeys(selos_str))
+        selos_unicos = list(dict.fromkeys(selos_str))  # preserva ordem
 
         if selos_unicos:
             rows_selos = many(
@@ -1407,7 +1185,8 @@ def update_projeto(id_projeto):
                     "selos_invalidos": invalidos
                 }), 400
 
-            selos_validos_ids = list(encontrados)
+            # mantém só os válidos, na mesma ordem que vieram no body
+            selos_validos_ids = [s for s in selos_unicos if s in encontrados]
 
     # --------------------------
     # Nada pra atualizar?
@@ -1446,7 +1225,7 @@ def update_projeto(id_projeto):
         if not row:
             return jsonify({"error": "Projeto não encontrado após atualização"}), 404
     else:
-        # nenhum campo de projeto foi alterado, mas vamos devolver o registro atualizado
+        # nenhum campo de projeto foi alterado, mas vamos devolver o registro atual
         row = one("""
             SELECT
                 id_projeto,
@@ -1471,23 +1250,51 @@ def update_projeto(id_projeto):
             return jsonify({"error": "Projeto não encontrado"}), 404
 
     # --------------------------
-    # Atualizar vínculos de selos
+    # Atualizar vínculos de selos (JSONB referencia)
     # --------------------------
     if alterar_selos:
-        # remove todos os vínculos atuais...
+        dono_projeto = row["id_usuario"]
+        titulo_proj  = row.get("titulo") or "Projeto"
+
+        # Remove todos os vínculos de selos desse projeto para o DONO,
+        # marcados com origem = 'PROJETO'
         run(
-            "DELETE FROM usuarios_selos WHERE id_projeto = %(id_projeto)s",
-            {"id_projeto": id_projeto},
+            """
+            DELETE FROM usuarios_selos
+             WHERE id_usuario = %(id_usuario)s
+               AND origem = 'PROJETO'
+               AND referencia->>'id_projeto' = %(id_projeto)s::text
+            """,
+            {
+                "id_usuario": dono_projeto,
+                "id_projeto": str(id_projeto),
+            },
         )
 
-        # ...e recria com a nova lista
+        # Recria vínculos conforme nova lista de selos
         for id_selo in selos_validos_ids:
             run(
                 """
-                INSERT INTO usuarios_selos (id_projeto, id_selo)
-                VALUES (%(id_projeto)s, %(id_selo)s)
+                INSERT INTO usuarios_selos
+                    (id_usuario, id_selo, motivo, origem, referencia, habilitado)
+                VALUES
+                    (%(id_usuario)s,
+                     %(id_selo)s,
+                     %(motivo)s,
+                     'PROJETO',
+                     jsonb_build_object('id_projeto', %(id_projeto)s),
+                     TRUE)
+                ON CONFLICT (id_usuario, id_selo) DO UPDATE
+                    SET referencia = jsonb_build_object('id_projeto', %(id_projeto)s),
+                        origem     = 'PROJETO',
+                        updated_at = NOW()
                 """,
-                {"id_projeto": id_projeto, "id_selo": id_selo},
+                {
+                    "id_usuario": dono_projeto,
+                    "id_selo": id_selo,
+                    "motivo": f"Selo vinculado ao projeto '{titulo_proj}'",
+                    "id_projeto": str(id_projeto),
+                },
             )
 
     # --------------------------
@@ -1496,7 +1303,7 @@ def update_projeto(id_projeto):
     selos_rows = many(
         """
         SELECT
-            ps.id_projeto,
+            us.id_usuario_selo,
             s.id_selo,
             s.titulo,
             s.slug,
@@ -1506,13 +1313,13 @@ def update_projeto(id_projeto):
             s.cor_fim,
             s.tipo,
             s.ordem
-        FROM usuarios_selos ps
-        JOIN selos s
-          ON s.id_selo = ps.id_selo
-        WHERE ps.id_projeto = %(id_projeto)s
+        FROM usuarios_selos us
+        JOIN selos s ON s.id_selo = us.id_selo
+        WHERE us.habilitado = TRUE
+          AND us.referencia->>'id_projeto' = %(id)s::text
         ORDER BY s.ordem ASC, s.titulo ASC
         """,
-        {"id_projeto": id_projeto},
+        {"id": str(id_projeto)},
     )
 
     selos = []
@@ -1542,17 +1349,16 @@ def delete_projeto(id_projeto):
 
     Marca o projeto como desabilitado (habilitado = FALSE).  
     Apenas administradores ou professores que SEJAM DONOS do projeto
-    podem executar esta ação (com exceção de ADMIN, que pode desabilitar qualquer projeto).
+    podem executar esta ação (exceto ADMIN, que pode desabilitar qualquer projeto).
 
-    Essa operação não apaga o projeto do banco; apenas o oculta do sistema
-    (soft delete).
+    Essa operação não apaga o projeto do banco; apenas o oculta do sistema.
 
     Regras:
       - Apenas usuários autenticados com permissão **ADMIN** ou **PROFESSOR**.
       - ADMIN pode desabilitar qualquer projeto.
       - PROFESSOR só pode desabilitar projetos que sejam seus (`id_usuario`).
-      - Se o projeto já estiver desabilitado (`habilitado = FALSE`), é retornado
-        erro 400.
+      - Se o projeto já estiver desabilitado, retorna 400.
+      - Selos de origem 'PROJETO' vinculados ao projeto são desabilitados.
 
     ---
     tags:
@@ -1561,96 +1367,11 @@ def delete_projeto(id_projeto):
       - Bearer: []
     produces:
       - application/json
-    parameters:
-      - in: header
-        name: Authorization
-        type: string
-        required: true
-        description: "Token JWT no formato Bearer <token>"
-      - in: path
-        name: id_projeto
-        type: string
-        required: true
-        format: uuid
-        description: "ID do projeto a ser desabilitado"
-    responses:
-      200:
-        description: Projeto desabilitado com sucesso
-        schema:
-          type: object
-          properties:
-            id_projeto:
-              type: string
-              format: uuid
-            id_usuario:
-              type: string
-              format: uuid
-            titulo:
-              type: string
-            descricao:
-              type: string
-            texto:
-              type: string
-            imagem_atividade:
-              type: string
-            tags:
-              type: array
-              items:
-                type: string
-            xp_conclusao:
-              type: integer
-            data_inicio:
-              type: string
-              format: date-time
-            data_fim:
-              type: string
-              format: date-time
-            status:
-              type: string
-            habilitado:
-              type: boolean
-              example: false
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-      400:
-        description: |
-          Erro de regra de negócio, por exemplo:
-            - projeto já está desabilitado
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-      401:
-        description: "Usuário não autenticado"
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-      403:
-        description: "Sem permissão (não admin/professor ou não dono do projeto)"
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-      404:
-        description: "Projeto não encontrado"
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
     """
     headers_dict = dict(request.headers)
-    print(f"[PROJ DEL ] - Headers: {headers_dict}")
+    print(f"[PROJ DEL] - Headers: {headers_dict}")
 
-    # Permissões principais
+    # Permissões básicas
     if not _is_admin_or_professor():
         return jsonify({"error": "acesso restrito a administradores e professores"}), 403
 
@@ -1658,7 +1379,7 @@ def delete_projeto(id_projeto):
     if not user_id:
         return jsonify({"error": "nenhum usuário autenticado"}), 401
 
-    # Verificar projeto (incluindo habilitado)
+    # Buscar projeto
     projeto = one("""
         SELECT id_projeto, id_usuario, habilitado
         FROM projetos
@@ -1668,20 +1389,20 @@ def delete_projeto(id_projeto):
     if not projeto:
         return jsonify({"error": "Projeto não encontrado"}), 404
 
-    # Se já estiver desabilitado, não faz nada e retorna 400
-    if projeto.get("habilitado") is False:
+    # Já desabilitado?
+    if projeto["habilitado"] is False:
         return jsonify({"error": "Projeto já está desabilitado"}), 400
 
-    # Regras de edição/exclusão:
-    # - ADMIN pode desabilitar tudo
-    # - PROFESSOR só pode se for o dono
-    is_admin = _is_admin()  # função auxiliar que você já tem
+    # Verificar permissão: ADMIN sempre pode
+    is_admin = _is_admin()
     is_owner = str(projeto["id_usuario"]) == str(user_id)
 
     if not is_admin and not is_owner:
         return jsonify({"error": "Você não tem permissão para remover este projeto"}), 403
 
-    # Realizar soft delete
+    # ================
+    # Soft delete
+    # ================
     row = one("""
         UPDATE projetos
            SET habilitado = FALSE,
@@ -1704,6 +1425,22 @@ def delete_projeto(id_projeto):
         updated_at
     """, {"id": id_projeto})
 
+    # =======================================================
+    # DESABILITAR SELos associados ao projeto
+    # =======================================================
+    # Apenas selos com:
+    #   origem = 'PROJETO'
+    #   referencia->>'id_projeto' = id_projeto
+    run("""
+        UPDATE usuarios_selos
+           SET habilitado = FALSE,
+               updated_at = NOW()
+         WHERE origem = 'PROJETO'
+           AND referencia->>'id_projeto' = %(id)s::text
+    """, {"id": str(id_projeto)})
+
+    print(f"[PROJ DEL] - Selos vinculados desabilitados para projeto {id_projeto}")
+
     return jsonify(row), 200
 
 # --------- Participar de projeto ---------
@@ -1719,22 +1456,14 @@ def participar_projeto(id_projeto):
     Regras:
       - Apenas usuários autenticados podem se inscrever.
       - Não permite inscrição se:
-          - projeto estiver **desabilitado**
-          - projeto estiver **CANCELADO**
-          - projeto estiver **CONCLUIDO**
-          - projeto estiver **PAUSADO** (regra opcional — incluída)
-          - `data_fim` já passou
+          * projeto estiver DESABILITADO
+          * CANCELADO
+          * CONCLUIDO
+          * PAUSADO
+          * data_fim já passou
       - Não permite inscrição duplicada (PENDENTE ou APROVADO)
-      - Usuário **não pode se inscrever no próprio projeto**
-
-    Body (JSON) — opcional:
-
-    {
-      "mensagem": "Professor, gostaria de participar...",
-      "papel": "ALUNO"
-    }
-
-    Se `papel` não for informado, assume "ALUNO".
+      - Dono não pode se inscrever no próprio projeto
+      - Papel padrão = ALUNO
 
     ---
     tags:
@@ -1745,103 +1474,22 @@ def participar_projeto(id_projeto):
       - application/json
     produces:
       - application/json
-    parameters:
-      - in: header
-        name: Authorization
-        required: true
-        type: string
-        description: "Token JWT no formato Bearer <token>"
-
-      - in: path
-        name: id_projeto
-        required: true
-        type: string
-        format: uuid
-        description: "ID do projeto no qual o aluno deseja se inscrever"
-
-      - in: body
-        name: body
-        required: false
-        schema:
-          type: object
-          properties:
-            mensagem:
-              type: string
-              description: "Mensagem opcional enviada ao professor/dono"
-              example: "Professor, gostaria de ajudar com backend."
-            papel:
-              type: string
-              description: "Papel desejado no projeto (padrão ALUNO)"
-              example: "ALUNO"
-
-    responses:
-      201:
-        description: Inscrição criada com sucesso (status PENDENTE)
-        schema:
-          type: object
-          properties:
-            id_participacao:
-              type: string
-              format: uuid
-            id_projeto:
-              type: string
-              format: uuid
-            id_usuario:
-              type: string
-              format: uuid
-            papel:
-              type: string
-            status:
-              type: string
-              example: "PENDENTE"
-            mensagem:
-              type: string
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-
-      400:
-        description: |
-          Regra de negócio violada ou dados inválidos, exemplo:
-            - projeto cancelado/pausado/concluído
-            - data_fim já ultrapassada
-            - usuário já inscrito
-            - usuário é o dono do projeto
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      401:
-        description: Não autenticado
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      404:
-        description: Projeto não encontrado ou desabilitado
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
     """
     headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
     print(f"[PROJ PART] - Headers: {headers_dict}")
     print(f"[PROJ PART] - Body: {data}")
 
+    # ================================
+    #  Autenticação
+    # ================================
     user_id = getattr(g, "user_id", None)
     if not user_id:
         return jsonify({"error": "nenhum usuário autenticado"}), 401
 
-    # Buscar projeto
+    # ================================
+    #  Buscar projeto
+    # ================================
     projeto = one("""
         SELECT
             id_projeto,
@@ -1856,50 +1504,61 @@ def participar_projeto(id_projeto):
     if not projeto or not projeto.get("habilitado"):
         return jsonify({"error": "Projeto não encontrado ou desabilitado"}), 404
 
-    # Dono não pode se inscrever no próprio projeto
+    # ================================
+    #  Dono não pode se inscrever
+    # ================================
     if str(projeto["id_usuario"]) == str(user_id):
         return jsonify({"error": "Você não pode participar do seu próprio projeto"}), 400
 
-    status_atual = projeto.get("status", "").upper()
+    # ================================
+    #  Verificar status do projeto
+    # ================================
+    status_atual = (projeto.get("status") or "").upper()
 
-    # Regras de bloqueio por status
     if status_atual in ("CANCELADO", "CONCLUIDO"):
         return jsonify({
             "error": f"Não é possível participar de um projeto com status {status_atual}"
         }), 400
 
-    # Bloqueio opcional para PAUSADO (muito recomendado)
     if status_atual == "PAUSADO":
         return jsonify({
             "error": "O projeto está PAUSADO e não aceita novas inscrições"
         }), 400
 
-    # Verificar se data_fim já passou
+    # ================================
+    #  Verificar se data_fim já passou
+    # ================================
     data_fim = projeto.get("data_fim")
-    if data_fim is not None:
-        agora = datetime.utcnow()
-        if agora > data_fim:
+    if data_fim:
+        if datetime.utcnow() > data_fim:
             return jsonify({"error": "Projeto já encerrado (data_fim ultrapassada)"}), 400
 
-    # Verificar participação existente
+    # ================================
+    #  Verificar participação existente
+    # ================================
     existente = one("""
         SELECT id_participacao, status
         FROM projetos_participantes
         WHERE id_projeto = %(id_projeto)s
           AND id_usuario = %(id_usuario)s
-    """, {
-        "id_projeto": id_projeto,
-        "id_usuario": user_id
-    })
+    """, {"id_projeto": id_projeto, "id_usuario": user_id})
 
     if existente and existente.get("status") in ("PENDENTE", "APROVADO"):
         return jsonify({"error": "Você já possui inscrição neste projeto"}), 400
 
+    # ================================
+    #  Dados do body
+    # ================================
     mensagem = data.get("mensagem")
+    papel = str(data.get("papel") or "ALUNO").strip().upper()
 
-    # Papel = ALUNO por padrão
-    papel = (data.get("papel") or "ALUNO").upper().strip()
+    # Segurança: não permitir papéis inválidos
+    if not papel:
+        papel = "ALUNO"
 
+    # ================================
+    #  Criar participação
+    # ================================
     row = one("""
         INSERT INTO projetos_participantes
             (id_projeto, id_usuario, papel, status, mensagem)
@@ -1931,15 +1590,14 @@ def listar_participantes_projeto(id_projeto):
     Listar participantes de um projeto
 
     Retorna todas as inscrições de participantes de um projeto específico,
-    permitindo filtro opcional por status.
+    com filtro opcional por status.
 
     Regras:
-      - Apenas o **DONO** do projeto pode visualizar.
-      - Usuários com permissão **ADMIN** podem visualizar qualquer projeto.
-      - PROFESSOR só pode visualizar projetos de sua autoria.
-
-    Filtro opcional:
-      - `status` = PENDENTE | APROVADO | RECUSADO | CANCELADO | CONCLUIDO
+      - Apenas ADMIN pode visualizar qualquer projeto.
+      - PROFESSOR só vê projetos onde ele é o dono.
+      - DONO do projeto pode visualizar.
+      - Filtro opcional:
+           ?status=PENDENTE|APROVADO|RECUSADO|CANCELADO|CONCLUIDO
 
     ---
     tags:
@@ -1948,114 +1606,14 @@ def listar_participantes_projeto(id_projeto):
       - Bearer: []
     produces:
       - application/json
-
-    parameters:
-      - in: header
-        name: Authorization
-        required: true
-        type: string
-        description: "Token JWT no formato Bearer <token>"
-
-      - in: path
-        name: id_projeto
-        required: true
-        type: string
-        format: uuid
-        description: "ID do projeto (UUID)"
-
-      - in: query
-        name: status
-        required: false
-        type: string
-        enum:
-          - PENDENTE
-          - APROVADO
-          - RECUSADO
-          - CANCELADO
-          - CONCLUIDO
-        description: "Filtra participantes pelo status da inscrição"
-
-    responses:
-      200:
-        description: Lista de participantes retornada com sucesso
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              id_participacao:
-                type: string
-                format: uuid
-              id_projeto:
-                type: string
-                format: uuid
-              id_usuario:
-                type: string
-                format: uuid
-              nome_usuario:
-                type: string
-              email_usuario:
-                type: string
-              avatar_usuario:
-                type: string
-                nullable: true
-              papel:
-                type: string
-              status:
-                type: string
-                enum:
-                  - PENDENTE
-                  - APROVADO
-                  - RECUSADO
-                  - CANCELADO
-                  - CONCLUIDO
-              mensagem:
-                type: string
-                nullable: true
-              created_at:
-                type: string
-                format: date-time
-              updated_at:
-                type: string
-                format: date-time
-
-      400:
-        description: Status inválido informado
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      401:
-        description: Usuário não autenticado
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      403:
-        description: Usuário não é dono do projeto e não é ADMIN
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      404:
-        description: Projeto não encontrado
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
     """
     headers_dict = dict(request.headers)
     print(f"[PROJ PART LIST] - Headers: {headers_dict}")
     print(f"[PROJ PART LIST] - Args: {dict(request.args)}")
 
-    # Permissões de base
+    # ============================
+    # Autenticação
+    # ============================
     if not _is_admin_or_professor():
         return jsonify({"error": "acesso restrito a administradores e professores"}), 403
 
@@ -2063,7 +1621,9 @@ def listar_participantes_projeto(id_projeto):
     if not user_id:
         return jsonify({"error": "nenhum usuário autenticado"}), 401
 
-    # Validar projeto
+    # ============================
+    # Verificar se projeto existe
+    # ============================
     projeto = one("""
         SELECT id_projeto, id_usuario
         FROM projetos
@@ -2073,22 +1633,24 @@ def listar_participantes_projeto(id_projeto):
     if not projeto:
         return jsonify({"error": "Projeto não encontrado"}), 404
 
-    # Apenas o dono, exceto ADMIN
+    # ============================
+    # Verificar permissão
+    # ============================
     if not _is_admin() and str(projeto["id_usuario"]) != str(user_id):
-        return jsonify({"error": "Você não tem permissão para visualizar as inscrições deste projeto"}), 403
+        return jsonify({"error": "Você não tem permissão para visualizar os participantes deste projeto"}), 403
 
-    # Filtro de status
+    # ============================
+    # Filtro opcional de status
+    # ============================
     status = request.args.get("status")
     params = {"id_projeto": id_projeto}
-    where = ["pp.id_projeto = %(id_projeto)s"]
 
     allowed_status = {
-        "PENDENTE",
-        "APROVADO",
-        "RECUSADO",
-        "CANCELADO",
-        "CONCLUIDO"
+        "PENDENTE", "APROVADO", "RECUSADO",
+        "CANCELADO", "CONCLUIDO"
     }
+
+    where_clause = "pp.id_projeto = %(id_projeto)s"
 
     if status:
         status_clean = status.strip().upper()
@@ -2096,22 +1658,23 @@ def listar_participantes_projeto(id_projeto):
         if status_clean not in allowed_status:
             return jsonify({
                 "error": "Status inválido",
-                "allowed": list(allowed_status)
+                "allowed": sorted(list(allowed_status))
             }), 400
 
-        where.append("pp.status = %(status)s")
+        where_clause += " AND pp.status = %(status)s"
         params["status"] = status_clean
 
-    where_clause = " AND ".join(where)
-
+    # ============================
+    # Consulta
+    # ============================
     rows = many(f"""
         SELECT
             pp.id_participacao,
             pp.id_projeto,
             pp.id_usuario,
-            u.nome        AS nome_usuario,
-            u.email       AS email_usuario,
-            u.imagem      AS avatar_usuario,
+            u.nome       AS nome_usuario,
+            u.email      AS email_usuario,
+            u.avatar_url AS avatar_usuario,
             pp.papel,
             pp.status,
             pp.mensagem,
@@ -2151,7 +1714,7 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
           - CONCLUIDOS
       - PROFESSOR só pode atualizar participações de projetos que ele é dono.
       - ADMIN pode atualizar qualquer projeto.
-      - Apenas **um MONITOR APROVADO** é permitido por projeto.
+      - Apenas um MONITOR APROVADO é permitido por projeto.
       - Deve haver ao menos um campo para atualização.
 
     Campos aceitos no body (JSON):
@@ -2170,121 +1733,15 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
       - application/json
     produces:
       - application/json
-
-    parameters:
-      - in: header
-        name: Authorization
-        required: true
-        description: "Token JWT no formato Bearer <token>"
-        type: string
-
-      - in: path
-        name: id_projeto
-        required: true
-        type: string
-        format: uuid
-        description: "ID do projeto"
-
-      - in: path
-        name: id_participacao
-        required: true
-        type: string
-        format: uuid
-        description: "ID da participação a ser atualizada"
-
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          properties:
-            status:
-              type: string
-              description: "Novo status da participação"
-              enum:
-                - PENDENTE
-                - APROVADO
-                - RECUSADO
-                - CANCELADO
-                - CONCLUIDO
-              example: "APROVADO"
-            papel:
-              type: string
-              description: "Novo papel do participante"
-              example: "MONITOR"
-
-    responses:
-      200:
-        description: Participação atualizada com sucesso
-        schema:
-          type: object
-          properties:
-            id_participacao:
-              type: string
-              format: uuid
-            id_projeto:
-              type: string
-              format: uuid
-            id_usuario:
-              type: string
-              format: uuid
-            papel:
-              type: string
-            status:
-              type: string
-            mensagem:
-              type: string
-              nullable: true
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-
-      400:
-        description: |
-          Erro de validação ou regra de negócio:
-            - nenhum campo enviado
-            - status inválido
-            - projeto desabilitado/cancelado/concluído
-            - já existe MONITOR APROVADO
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      401:
-        description: Usuário não autenticado
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      403:
-        description: Usuário sem permissão (não é ADMIN ou dono)
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      404:
-        description: Projeto ou participação não encontrada
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
     """
     headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
     print(f"[PROJ PART UPD] - Headers: {headers_dict}")
     print(f"[PROJ PART UPD] - Body: {data}")
 
-    # Permissões básicas
+    # ============================
+    # Permissão base
+    # ============================
     if not _is_admin_or_professor():
         return jsonify({"error": "acesso restrito a administradores e professores"}), 403
 
@@ -2292,7 +1749,9 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
     if not user_id:
         return jsonify({"error": "nenhum usuário autenticado"}), 401
 
-    # Buscar projeto com status/habilitado
+    # ============================
+    # Buscar projeto
+    # ============================
     projeto = one("""
         SELECT id_projeto, id_usuario, status, habilitado
         FROM projetos
@@ -2302,14 +1761,13 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
     if not projeto:
         return jsonify({"error": "Projeto não encontrado"}), 404
 
-    # Permissão final
     is_admin = _is_admin()
     is_owner = str(projeto["id_usuario"]) == str(user_id)
 
     if not is_admin and not is_owner:
         return jsonify({"error": "Você não tem permissão para gerenciar inscrições deste projeto"}), 403
 
-    # Bloqueios por estado do projeto
+    # Projeto desabilitado ou com status terminal
     if not projeto.get("habilitado"):
         return jsonify({"error": "Projeto desabilitado — não é possível atualizar participações"}), 400
 
@@ -2320,7 +1778,9 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
             "status_projeto": status_proj
         }), 400
 
-    # Buscar a participação
+    # ============================
+    # Buscar participação
+    # ============================
     participacao = one("""
         SELECT id_participacao, id_projeto, id_usuario, status, papel, mensagem
         FROM projetos_participantes
@@ -2334,7 +1794,9 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
     if not participacao:
         return jsonify({"error": "Participação não encontrada"}), 404
 
+    # ============================
     # Campos do body
+    # ============================
     novo_status = data.get("status")
     novo_papel  = data.get("papel")
 
@@ -2347,7 +1809,7 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
     }
     fields = []
 
-    # -------- status ----------
+    # -------- Status ----------
     status_normalizado = None
     if novo_status:
         status_normalizado = str(novo_status).strip().upper()
@@ -2356,33 +1818,33 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
         if status_normalizado not in status_validos:
             return jsonify({
                 "error": "status inválido",
-                "allowed": list(status_validos)
+                "allowed": sorted(list(status_validos))
             }), 400
 
         fields.append("status = %(status)s")
         params["status"] = status_normalizado
 
-    # -------- papel ----------
+    # -------- Papel ----------
     papel_normalizado = None
     if novo_papel is not None:
         papel_normalizado = str(novo_papel).strip().upper()
         fields.append("papel = %(papel)s")
         params["papel"] = papel_normalizado
 
-    # -------- lógica final (status + papel) --------
+    # -------- Lógica final (status + papel) --------
     papel_final = (
         papel_normalizado
         if papel_normalizado is not None
-        else (participacao["papel"] or "").upper()
+        else (participacao["papel"] or "").strip().upper()
     )
 
     status_final = (
         status_normalizado
         if status_normalizado is not None
-        else (participacao["status"] or "").upper()
+        else (participacao["status"] or "").strip().upper()
     )
 
-    # ---------- Regras MONITOR ----------
+    # ---------- Regra: apenas 1 MONITOR APROVADO ----------
     if papel_final == "MONITOR" and status_final == "APROVADO":
         existente_monitor = one("""
             SELECT id_participacao
@@ -2391,14 +1853,17 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
               AND id_participacao <> %(id_participacao)s
               AND UPPER(papel) = 'MONITOR'
               AND UPPER(status) = 'APROVADO'
-        """, params)
+        """, {
+            "id_projeto": id_projeto,
+            "id_participacao": id_participacao,
+        })
 
         if existente_monitor:
             return jsonify({
                 "error": "Já existe um monitor aprovado neste projeto. Só é permitido um monitor por projeto."
             }), 400
 
-    # -------- realizar update --------
+    # -------- Realizar UPDATE --------
     fields.append("updated_at = NOW()")
 
     sql = f"""
@@ -2421,14 +1886,15 @@ def atualizar_participacao_projeto(id_projeto, id_participacao):
 
     return jsonify(row), 200
 
+# --------- Adicionar participante em projeto (professor/adm) ---------
 @projetos_bp.post("/<uuid:id_projeto>/participantes/adicionar")
 @require_auth
 def adicionar_participante_projeto(id_projeto):
     """
     Adicionar participante em projeto (pelo professor/adm)
 
-    Permite que o **DONO** do projeto (professor/adm) ou um usuário com
-    permissão **ADMIN** adicione um aluno diretamente ao projeto, definindo
+    Permite que o DONO do projeto (professor/adm) ou um usuário com
+    permissão ADMIN adicione um aluno diretamente ao projeto, definindo
     o papel e o status da participação.
 
     Regras principais:
@@ -2439,7 +1905,7 @@ def adicionar_participante_projeto(id_projeto):
           * CONCLUIDOS
           * Encerrados (data_fim já ultrapassada)
       - Se o papel final for MONITOR e o status final for APROVADO,
-        só é permitido **um monitor aprovado por projeto**.
+        só é permitido um monitor aprovado por projeto.
       - Se o aluno já tiver inscrição PENDENTE ou APROVADO no projeto,
         não é permitido criar uma nova.
       - O próprio dono do projeto não pode ser adicionado como participante.
@@ -2462,127 +1928,15 @@ def adicionar_participante_projeto(id_projeto):
       - application/json
     produces:
       - application/json
-    parameters:
-      - in: header
-        name: Authorization
-        required: true
-        type: string
-        description: "Token JWT no formato Bearer <token>"
-
-      - in: path
-        name: id_projeto
-        required: true
-        type: string
-        format: uuid
-        description: "ID do projeto onde o aluno será adicionado"
-
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - id_usuario
-          properties:
-            id_usuario:
-              type: string
-              format: uuid
-              description: "ID (UUID) do aluno que será adicionado ao projeto"
-              example: "552a7eb4-64e6-44b9-8207-59ad10b862a4"
-            papel:
-              type: string
-              description: "Papel do usuário no projeto (padrão: MEMBRO)"
-              example: "MEMBRO"
-            status:
-              type: string
-              description: "Status inicial da participação (padrão: APROVADO)"
-              enum:
-                - PENDENTE
-                - APROVADO
-                - RECUSADO
-                - CANCELADO
-                - CONCLUIDO
-              example: "APROVADO"
-            mensagem:
-              type: string
-              description: "Mensagem opcional para o aluno sobre a participação"
-              example: "Você foi adicionado como monitor do projeto X."
-
-    responses:
-      201:
-        description: "Participante adicionado com sucesso ao projeto"
-        schema:
-          type: object
-          properties:
-            id_participacao:
-              type: string
-              format: uuid
-            id_projeto:
-              type: string
-              format: uuid
-            id_usuario:
-              type: string
-              format: uuid
-            papel:
-              type: string
-              example: "MEMBRO"
-            status:
-              type: string
-              example: "APROVADO"
-            mensagem:
-              type: string
-            created_at:
-              type: string
-              format: date-time
-            updated_at:
-              type: string
-              format: date-time
-
-      400:
-        description: |
-          Erro de validação ou regra de negócio, por exemplo:
-            - id_usuario não informado
-            - status inválido
-            - projeto desabilitado, cancelado, concluído ou encerrado
-            - usuário já possui inscrição PENDENTE ou APROVADO
-            - já existe um MONITOR aprovado no projeto
-            - tentativa de adicionar o dono do projeto como participante
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      401:
-        description: "Usuário não autenticado"
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      403:
-        description: "Usuário sem permissão (não é ADMIN nem dono do projeto)"
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-
-      404:
-        description: "Projeto ou usuário (aluno) não encontrados"
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
     """
     headers_dict = dict(request.headers)
     data = request.get_json(force=True, silent=True) or {}
     print(f"[PROJ PART ADD] - Headers: {headers_dict}")
     print(f"[PROJ PART ADD] - Body: {data}")
 
-    # Verifica permissão global
+    # ============================
+    # Permissão base
+    # ============================
     if not _is_admin_or_professor():
         return jsonify({"error": "acesso restrito a administradores e professores"}), 403
 
@@ -2590,7 +1944,9 @@ def adicionar_participante_projeto(id_projeto):
     if not user_id:
         return jsonify({"error": "nenhum usuário autenticado"}), 401
 
-    # Verifica se o projeto existe
+    # ============================
+    # Buscar projeto
+    # ============================
     projeto = one("""
         SELECT id_projeto, id_usuario, habilitado, status, data_fim
         FROM projetos
@@ -2626,7 +1982,9 @@ def adicionar_participante_projeto(id_projeto):
         if agora > data_fim:
             return jsonify({"error": "Projeto já encerrado (data_fim ultrapassada)"}), 400
 
+    # ============================
     # Dados do body
+    # ============================
     id_usuario_alvo = data.get("id_usuario")
     if not id_usuario_alvo:
         return jsonify({"error": "id_usuario é obrigatório"}), 400
@@ -2645,10 +2003,13 @@ def adicionar_participante_projeto(id_projeto):
     status_validos = {"PENDENTE", "APROVADO", "RECUSADO", "CANCELADO", "CONCLUIDO"}
     if status_normalizado not in status_validos:
         return jsonify({
-            "error": f"status inválido. Valores aceitos: {', '.join(sorted(status_validos))}"
+            "error": "status inválido",
+            "allowed": sorted(list(status_validos))
         }), 400
 
-    # Verifica se o aluno existe
+    # ============================
+    # Verificar se o aluno existe
+    # ============================
     usuario = one("""
         SELECT id_usuario
         FROM usuarios
@@ -2658,7 +2019,9 @@ def adicionar_participante_projeto(id_projeto):
     if not usuario:
         return jsonify({"error": "Usuário (aluno) não encontrado"}), 404
 
-    # Evita duplicar inscrição PENDENTE/APROVADO
+    # ============================
+    # Evitar duplicar inscrição
+    # ============================
     existente = one("""
         SELECT id_participacao, status
         FROM projetos_participantes
@@ -2674,7 +2037,9 @@ def adicionar_participante_projeto(id_projeto):
             "error": "Este usuário já possui inscrição PENDENTE ou APROVADO neste projeto"
         }), 400
 
-    # Regra: apenas 1 MONITOR APROVADO por projeto
+    # ============================
+    # Regra: apenas 1 MONITOR APROVADO
+    # ============================
     if papel_upper == "MONITOR" and status_normalizado == "APROVADO":
         existente_monitor = one("""
             SELECT id_participacao
@@ -2691,7 +2056,9 @@ def adicionar_participante_projeto(id_projeto):
                 "error": "Já existe um monitor aprovado neste projeto. Só é permitido um monitor por projeto."
             }), 400
 
-    # Cria a participação
+    # ============================
+    # Criar participação
+    # ============================
     row = one("""
         INSERT INTO projetos_participantes
             (id_projeto, id_usuario, papel, status, mensagem)

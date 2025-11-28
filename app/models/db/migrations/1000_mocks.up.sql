@@ -256,81 +256,81 @@ INSERT INTO projetos (
     'API de Portfólio UNIVC',
     'Desenvolvimento da API REST da plataforma, com autenticação JWT e integração total com o Front.',
     '''
-    # API Portfólio UNIVC\n
-    A API do Portfólio UNIVC é responsável por centralizar toda a lógica de autenticação, controle de permissões, gerenciamento de alunos, professores, cursos, projetos, níveis, XP e selos. O objetivo principal é fornecer uma camada backend robusta, escalável e segura, permitindo que diversas aplicações do ecossistema UNIVC consumam os dados de forma padronizada.\n\n
+    # API Portfólio UNIVC
+    A API do Portfólio UNIVC é responsável por centralizar toda a lógica de autenticação, controle de permissões, gerenciamento de alunos, professores, cursos, projetos, níveis, XP e selos. O objetivo principal é fornecer uma camada backend robusta, escalável e segura, permitindo que diversas aplicações do ecossistema UNIVC consumam os dados de forma padronizada.
 
-    ## Objetivos da Demanda\n
-    - Criar uma API totalmente documentada com Swagger (OpenAPI 3).\n
-    - Implementar autenticação baseada em JWT com Bearer Token.\n
-    - Criar rotas estruturadas em Blueprints para módulos como: **Usuários**, **Cursos**, **Projetos**, **Níveis**, **Missões**, **Selos** e **Histórico de XP**.\n
-    - Garantir segurança com verificação de permissões (ADMIN, PROFESSOR e ALUNO).\n
-    - Integrar com PostgreSQL utilizando camada robusta para transações e consultas.\n
-    - Criar migrations consistentes para evolução do banco.\n
-    - Estruturar logs e respostas padronizadas.\n\n
+    ## Objetivos da Demanda
+    - Criar uma API totalmente documentada com Swagger (OpenAPI 3).
+    - Implementar autenticação baseada em JWT com Bearer Token.
+    - Criar rotas estruturadas em Blueprints para módulos como: **Usuários**, **Cursos**, **Projetos**, **Níveis**, **Missões**, **Selos** e **Histórico de XP**.
+    - Garantir segurança com verificação de permissões (ADMIN, PROFESSOR e ALUNO).
+    - Integrar com PostgreSQL utilizando camada robusta para transações e consultas.
+    - Criar migrations consistentes para evolução do banco.
+    - Estruturar logs e respostas padronizadas.
 
-    ## Tecnologias e Ferramentas Utilizadas\n
-    - **Python 3.12**\n
-    - **Flask 3.x** com Blueprints\n
-    - **JWT (PyJWT)** para autenticação\n
-    - **psycopg2** para integração com PostgreSQL\n
-    - **Flasgger / Swagger UI** para documentação\n
-    - **PostgreSQL 15+** com uso de UUID (pgcrypto)\n
-    - **Docker** (ambiente recomendado)\n
-    - **Gunicorn** (produção)\n
-    - **Render / Railway / Dokploy** (deploy opcional)\n\n
+    ## Tecnologias e Ferramentas Utilizadas
+    - **Python 3.12**
+    - **Flask 3.x** com Blueprints
+    - **JWT (PyJWT)** para autenticação
+    - **psycopg2** para integração com PostgreSQL
+    - **Flasgger / Swagger UI** para documentação
+    - **PostgreSQL 15+** com uso de UUID (pgcrypto)
+    - **Docker** (ambiente recomendado)
+    - **Gunicorn** (produção)
+    - **Render / Railway / Dokploy** (deploy opcional)
 
-    ## Escopo Técnico\n
-    1. **Autenticação JWT**\n
-    - Rota de login recebe email e senha.\n
-    - Validação via bcrypt.\n
-    - Geração de token com validade configurável.\n
-    - Middleware `require_auth` protege as rotas.\n\n
+    ## Escopo Técnico
+    1. **Autenticação JWT**
+    - Rota de login recebe email e senha.
+    - Validação via bcrypt.
+    - Geração de token com validade configurável.
+    - Middleware `require_auth` protege as rotas.
 
-    2. **Gestão de Usuários**\n
-    - Cadastro, edição e validação.\n
-    - Controle de permissões.\n
-    - Suporte a imagem de perfil.\n\n
+    2. **Gestão de Usuários**
+    - Cadastro, edição e validação.
+    - Controle de permissões.
+    - Suporte a imagem de perfil.
 
-    3. **Módulo de Cursos**\n
-    - Cada curso possui períodos e lista de períodos.\n
-    - CRUD completo.\n
-    - Filtragem e paginação.\n\n
+    3. **Módulo de Cursos**
+    - Cada curso possui períodos e lista de períodos.
+    - CRUD completo.
+    - Filtragem e paginação.
 
-    4. **Módulo de Projetos**\n
-    - API permite criar projetos com título, descrição, imagem, XP e status.\n
-    - Status é atualizado automaticamente com base em `data_inicio` e `data_fim`.\n
-    - Tags são armazenadas como arrays (`TEXT[]`).\n
-    - Projeto possui relação forte com o usuário que criou.\n\n
+    4. **Módulo de Projetos**
+    - API permite criar projetos com título, descrição, imagem, XP e status.
+    - Status é atualizado automaticamente com base em `data_inicio` e `data_fim`.
+    - Tags são armazenadas como arrays (`TEXT[]`).
+    - Projeto possui relação forte com o usuário que criou.
 
-    5. **Módulo de Selos e Gamificação**\n
-    - CRUD de selos com gradientes de cor, ícones e tipos.\n
-    - Relacionamento `usuarios_selos` com origem, motivo e referencia JSONB.\n
-    - Respeita índice único (1 selo por usuário).\n\n
+    5. **Módulo de Selos e Gamificação**
+    - CRUD de selos com gradientes de cor, ícones e tipos.
+    - Relacionamento `usuarios_selos` com origem, motivo e referencia JSONB.
+    - Respeita índice único (1 selo por usuário).
 
-    6. **Sistema de Níveis e XP**\n
-    - Cálculo automático do nível do usuário baseado em XP estendido.\n
-    - Histórico detalhado no `usuarios_xp_historico`.\n\n
+    6. **Sistema de Níveis e XP**
+    - Cálculo automático do nível do usuário baseado em XP estendido.
+    - Histórico detalhado no `usuarios_xp_historico`.
 
-    7. **Módulo de Missões**\n
-    - Missões com XP e ordem.\n
-    - Preparado para exibição no front.\n\n
+    7. **Módulo de Missões**
+    - Missões com XP e ordem.
+    - Preparado para exibição no front.
 
-    ## Fluxo Real do Projeto\n
-    - O professor/administrador cria um projeto no painel.\n
-    - A API valida permissões e grava o registro no PostgreSQL.\n
-    - Quando um aluno conclui o projeto, uma rota de conclusão é chamada.\n
-    - Isso gera um evento: soma XP + atualização do nível + registro no histórico.\n
-    - Caso aplicável, um selo é concedido automaticamente via `usuarios_selos`.\n
-    - O front recebe todos os dados estruturados pela API.\n\n
+    ## Fluxo Real do Projeto
+    - O professor/administrador cria um projeto no painel.
+    - A API valida permissões e grava o registro no PostgreSQL.
+    - Quando um aluno conclui o projeto, uma rota de conclusão é chamada.
+    - Isso gera um evento: soma XP + atualização do nível + registro no histórico.
+    - Caso aplicável, um selo é concedido automaticamente via `usuarios_selos`.
+    - O front recebe todos os dados estruturados pela API.
 
-    ## Considerações de Segurança\n
-    - Todas as respostas seguem padrão JSON.\n
-    - Tokens inválidos retornam HTTP 401.\n
-    - Acesso negado retorna HTTP 403.\n
-    - Validação de payloads é feita antes do processamento.\n
-    - Insertions usam parâmetros para evitar SQL Injection.\n\n
+    ## Considerações de Segurança
+    - Todas as respostas seguem padrão JSON.
+    - Tokens inválidos retornam HTTP 401.
+    - Acesso negado retorna HTTP 403.
+    - Validação de payloads é feita antes do processamento.
+    - Insertions usam parâmetros para evitar SQL Injection.
 
-    ## Conclusão\n
+    ## Conclusão
     A API Portfólio UNIVC oferece uma base sólida para toda a plataforma, garantindo organização, escalabilidade e segurança. Com módulos separados, documentação clara e integração fluida com o frontend, ela sustenta toda a camada de gamificação, progresso acadêmico e gestão educacional do ecossistema UNIVC.
     ''',
     'https://img.freepik.com/fotos-gratis/pessoas-a-trabalhar-em-equipa_23-2149136895.jpg?semt=ais_hybrid&w=740&q=80',
@@ -347,57 +347,57 @@ INSERT INTO projetos (
     'Frontend React do Sistema UNIVC',
     'Interface completa com animações, chat integrado e navegação inteligente.',
     '''
-## Interface do Portfólio\n
-A Interface do Portfólio UNIVC foi desenvolvida para oferecer uma experiência moderna, interativa e fluida aos usuários. Inspirada em plataformas de IA e ambientes de aprendizado adaptativo, ela combina elementos de chat, histórico de ações, animações suaves e navegação inteligente entre módulos, proporcionando ao aluno e ao professor uma utilização simples, objetiva e visualmente atrativa.\n\n
+## Interface do Portfólio
+A Interface do Portfólio UNIVC foi desenvolvida para oferecer uma experiência moderna, interativa e fluida aos usuários. Inspirada em plataformas de IA e ambientes de aprendizado adaptativo, ela combina elementos de chat, histórico de ações, animações suaves e navegação inteligente entre módulos, proporcionando ao aluno e ao professor uma utilização simples, objetiva e visualmente atrativa.
 
-## Objetivos da Interface\n
-- Criar uma camada visual intuitiva para consulta e gerenciamento das informações do usuário.\n
-- Exibir o histórico completo de interações, como evolução em cursos, XP, projetos e selos.\n
-- Oferecer um chat lateral fixo para interação com o assistente virtual da plataforma.\n
-- Integrar animações fluidas para transição entre páginas, melhorando a percepção de continuidade.\n
-- Reagir dinamicamente às ações do usuário (ex.: concluir um projeto, receber um selo, responder missão).\n\n
+## Objetivos da Interface
+- Criar uma camada visual intuitiva para consulta e gerenciamento das informações do usuário.
+- Exibir o histórico completo de interações, como evolução em cursos, XP, projetos e selos.
+- Oferecer um chat lateral fixo para interação com o assistente virtual da plataforma.
+- Integrar animações fluidas para transição entre páginas, melhorando a percepção de continuidade.
+- Reagir dinamicamente às ações do usuário (ex.: concluir um projeto, receber um selo, responder missão).
 
-## Principais Funcionalidades\n
-1. **Chat Integrado**\n
-- Sempre visível na interface.\n
-- Exibe histórico completo da conversa.\n
-- Responde perguntas sobre cursos, progresso, projetos, certificados, selos e XP.\n
-- Oferece sugestões automáticas baseadas no comportamento do usuário.\n\n
+## Principais Funcionalidades
+1. **Chat Integrado**
+- Sempre visível na interface.
+- Exibe histórico completo da conversa.
+- Responde perguntas sobre cursos, progresso, projetos, certificados, selos e XP.
+- Oferece sugestões automáticas baseadas no comportamento do usuário.
 
-2. **Histórico de Atividades**\n
-- Exibição cronológica do que o usuário realizou.\n
-- Filtrado por tipo: projeto, missão, nível, XP, selos.\n
-- Atualização em tempo real após qualquer operação na API.\n\n
+2. **Histórico de Atividades**
+- Exibição cronológica do que o usuário realizou.
+- Filtrado por tipo: projeto, missão, nível, XP, selos.
+- Atualização em tempo real após qualquer operação na API.
 
-3. **Navegação Inteligente e Animada**\n
-- Troca de páginas com transições suaves.\n
-- Quando o usuário pede algo específico (ex.: “ver projetos”), a interface aciona animação de rotação ou fade para destacar a seção correspondente.\n
-- Sessões borradas (blur) quando o usuário acessa informações protegidas ou quando não existem dados suficientes.\n\n
+3. **Navegação Inteligente e Animada**
+- Troca de páginas com transições suaves.
+- Quando o usuário pede algo específico (ex.: “ver projetos”), a interface aciona animação de rotação ou fade para destacar a seção correspondente.
+- Sessões borradas (blur) quando o usuário acessa informações protegidas ou quando não existem dados suficientes.
 
-4. **Dashboard Personalizado**\n
-- Cards de progresso com barras animadas.\n
-- Níveis, XP acumulado e metas visuais.\n
-- Lista dos últimos projetos visualizados ou concluídos.\n\n
+4. **Dashboard Personalizado**
+- Cards de progresso com barras animadas.
+- Níveis, XP acumulado e metas visuais.
+- Lista dos últimos projetos visualizados ou concluídos.
 
-5. **Integração Total com a API UNIVC**\n
-- Comunicação via endpoints protegidos com JWT.\n
-- Busca de dados do usuário, missões, selos e projetos.\n
-- Atualização automática via chamadas periódicas ou WebSocket opcional.\n\n
+5. **Integração Total com a API UNIVC**
+- Comunicação via endpoints protegidos com JWT.
+- Busca de dados do usuário, missões, selos e projetos.
+- Atualização automática via chamadas periódicas ou WebSocket opcional.
 
-## Fluxo Real de Uso\n
-- O aluno acessa a interface e o sistema carrega seus dados por meio do JWT.\n
-- O chat exibe sugestões baseadas no curso atual e no progresso.\n
-- Ao solicitar “ver meus projetos”, a interface processa o comando e exibe a página com uma animação de transição.\n
-- Caso o aluno conclua uma missão, a interface atualiza os cards e o histórico imediatamente.\n
-- Quando novos selos são concedidos, a UI exibe uma animação de destaque.\n\n
+## Fluxo Real de Uso
+- O aluno acessa a interface e o sistema carrega seus dados por meio do JWT.
+- O chat exibe sugestões baseadas no curso atual e no progresso.
+- Ao solicitar “ver meus projetos”, a interface processa o comando e exibe a página com uma animação de transição.
+- Caso o aluno conclua uma missão, a interface atualiza os cards e o histórico imediatamente.
+- Quando novos selos são concedidos, a UI exibe uma animação de destaque.
 
-## Considerações de UX/UI\n
-- Foco em acessibilidade, contraste e leitura.\n
-- Layout responsivo para desktop e mobile.\n
-- Uso de Tailwind CSS para padronização visual.\n
-- Componentização com React e padrões modernos (Hooks, Context, Query, Shadcn UI).\n\n
+## Considerações de UX/UI
+- Foco em acessibilidade, contraste e leitura.
+- Layout responsivo para desktop e mobile.
+- Uso de Tailwind CSS para padronização visual.
+- Componentização com React e padrões modernos (Hooks, Context, Query, Shadcn UI).
 
-## Conclusão\n
+## Conclusão
 A Interface do Portfólio UNIVC não é apenas uma camada visual, mas uma experiência interativa e guiada, permitindo que alunos e professores acompanhem a evolução acadêmica e de habilidades de forma clara, dinâmica e envolvente. Ela integra o poder da API com uma UI moderna, elevando o engajamento e aprendizado dentro da plataforma.
     ''',
     'https://img.freepik.com/free-photo/business-people-arranging-various-adhesive-notes-with-text-glass-office_662251-1531.jpg',
