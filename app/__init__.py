@@ -23,6 +23,7 @@ def create_app():
     from .routes.levels_routes import levels_bp
     from .routes.projetos_routes import projetos_bp
     from .routes.missoes_routes import missoes_bp
+    from .routes.selos_routes import selos_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(user_bp)
@@ -30,5 +31,6 @@ def create_app():
     app.register_blueprint(levels_bp, url_prefix="/levels")
     app.register_blueprint(projetos_bp, url_prefix="/projetos")
     app.register_blueprint(missoes_bp, url_prefix="/missoes")
+    app.register_blueprint(selos_bp, url_prefix="/selos")
 
     return app
