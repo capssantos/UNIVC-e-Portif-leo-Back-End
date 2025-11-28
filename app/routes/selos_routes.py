@@ -285,7 +285,7 @@ def create_selo():
               type: string
               format: date-time
       400:
-        description: Erro de validação (ex.: título ausente).
+        description: "Erro de validação (ex.: título ausente)."
         schema:
           type: object
           properties:
