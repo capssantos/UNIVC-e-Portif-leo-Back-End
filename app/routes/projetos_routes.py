@@ -494,7 +494,7 @@ def list_projetos():
             s.cor_fim,
             s.tipo,
             s.ordem
-        FROM projetos_selos ps
+        FROM usuarios_selos ps
         JOIN selos s
           ON s.id_selo = ps.id_selo
         WHERE ps.id_projeto = ANY(%(ids)s)
@@ -831,7 +831,7 @@ def create_projeto():
     for id_selo in selos_validos_ids:
         run(
             """
-            INSERT INTO projetos_selos (id_projeto, id_selo)
+            INSERT INTO usuarios_selos (id_projeto, id_selo)
             VALUES (%(id_projeto)s, %(id_selo)s)
             ON CONFLICT (id_projeto, id_selo) DO NOTHING
             """,
@@ -1016,7 +1016,7 @@ def get_projeto(id_projeto):
             s.cor_fim,
             s.tipo,
             s.ordem
-        FROM projetos_selos ps
+        FROM usuarios_selos ps
         JOIN selos s
           ON s.id_selo = ps.id_selo
         WHERE ps.id_projeto = %(id_projeto)s
@@ -1475,7 +1475,7 @@ def update_projeto(id_projeto):
     if alterar_selos:
         # remove todos os vínculos atuais...
         run(
-            "DELETE FROM projetos_selos WHERE id_projeto = %(id_projeto)s",
+            "DELETE FROM usuarios_selos WHERE id_projeto = %(id_projeto)s",
             {"id_projeto": id_projeto},
         )
 
@@ -1483,7 +1483,7 @@ def update_projeto(id_projeto):
         for id_selo in selos_validos_ids:
             run(
                 """
-                INSERT INTO projetos_selos (id_projeto, id_selo)
+                INSERT INTO usuarios_selos (id_projeto, id_selo)
                 VALUES (%(id_projeto)s, %(id_selo)s)
                 """,
                 {"id_projeto": id_projeto, "id_selo": id_selo},
@@ -1505,7 +1505,7 @@ def update_projeto(id_projeto):
             s.cor_fim,
             s.tipo,
             s.ordem
-        FROM projetos_selos ps
+        FROM usuarios_selos ps
         JOIN selos s
           ON s.id_selo = ps.id_selo
         WHERE ps.id_projeto = %(id_projeto)s
