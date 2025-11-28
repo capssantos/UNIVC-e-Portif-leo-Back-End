@@ -77,7 +77,6 @@ def _is_admin_or_professor():
 
     return permissao in permissoes_validas
 
-
 # --------- Listar projetos ---------
 @projetos_bp.get("")
 @require_auth
@@ -85,19 +84,14 @@ def list_projetos():
     """
     Listar projetos
 
-    Retorna a lista de projetos com suporte a:
-
-    - filtro por dono do projeto (`id_usuario`)
-    - filtro por tag (`tag`)
-    - filtro por habilitado (`habilitado`)
-    - filtro por participação do usuário autenticado (`me`)
-    - paginação (`limit`, `offset`)
+    Retorna a lista de projetos, com suporte a filtros por usuário,
+    tag, habilitado, participação do usuário autenticado e paginação.
 
     A rota possui **dois comportamentos distintos**:
 
     1) `me=true`  
-       Lista **apenas projetos em que o usuário autenticado participa**, ignorando
-       o filtro `id_usuario` (dono).  
+       Lista **apenas projetos em que o usuário autenticado participa**
+       (tabela `projetos_participantes`), ignorando o filtro `id_usuario`.
        O resultado inclui informações da participação:
 
        - `id_participacao`
@@ -106,14 +100,17 @@ def list_projetos():
 
     2) `me` ausente ou `me=false`  
        Lista projetos de forma geral (públicos do ponto de vista da API),
-       respeitando os filtros `id_usuario`, `tag`, `habilitado`, `limit`, `offset`.
+       respeitando os filtros:
 
-    Além dos campos do projeto, a API calcula e retorna sempre os campos:
+       - `id_usuario` (dono/criador do projeto)
+       - `tag`
+       - `habilitado`
+       - `limit`, `offset`
 
-    - `percentual_conclusao` (0.0 a 100.0), baseado em `data_inicio` e `data_fim`.
-    - `selos`: lista de selos associados ao projeto.
+    Em ambos os casos, são retornados também:
 
-    Requer autenticação via Bearer token.
+    - `percentual_conclusao` (0.0 a 100.0), baseado em `data_inicio` e `data_fim`
+    - `selos`: lista de selos vinculados ao projeto via `usuarios_selos.referencia->'id_projeto'`.
 
     ---
     tags:
@@ -122,6 +119,7 @@ def list_projetos():
       - Bearer: []
     produces:
       - application/json
+
     parameters:
       - in: header
         name: Authorization
@@ -243,9 +241,26 @@ def list_projetos():
                 description: >
                   Percentual estimado de conclusão baseado em `data_inicio` e `data_fim`,
                   variando de 0.0 a 100.0. Se não houver datas, retorna 0.0.
+              id_participacao:
+                type: string
+                format: uuid
+                description: >
+                  **Somente quando `me=true`.** ID da participação do usuário
+                  autenticado na tabela `projetos_participantes`.
+              meu_papel:
+                type: string
+                description: >
+                  **Somente quando `me=true`.** Papel do usuário autenticado no projeto
+                  (ex.: ALUNO, MONITOR, MEMBRO).
+              meu_status:
+                type: string
+                description: >
+                  **Somente quando `me=true`.** Status da participação do usuário
+                  (PENDENTE, APROVADO, RECUSADO, CANCELADO, CONCLUIDO).
               selos:
                 type: array
-                description: "Selos associados ao projeto."
+                description: >
+                  Lista de selos vinculados ao projeto via `usuarios_selos.referencia->'id_projeto'`.
                 items:
                   type: object
                   properties:
@@ -268,22 +283,6 @@ def list_projetos():
                       type: string
                     ordem:
                       type: integer
-              id_participacao:
-                type: string
-                format: uuid
-                description: >
-                  **Somente quando `me=true`.** ID da participação do usuário
-                  autenticado na tabela `projetos_participantes`.
-              meu_papel:
-                type: string
-                description: >
-                  **Somente quando `me=true`.** Papel do usuário autenticado no projeto
-                  (ex.: ALUNO, MONITOR, MEMBRO).
-              meu_status:
-                type: string
-                description: >
-                  **Somente quando `me=true`.** Status da participação do usuário
-                  (PENDENTE, APROVADO, RECUSADO, CANCELADO, CONCLUIDO).
 
       400:
         description: >
@@ -305,6 +304,7 @@ def list_projetos():
           properties:
             error:
               type: string
+
     """
     headers_dict = dict(request.headers)
     print(f"[PROJ LIST] - Headers: {headers_dict}")
@@ -343,7 +343,6 @@ def list_projetos():
 
     # ------------------------------------------------
     # Caso 1: me=true → projetos em que EU PARTICIPO
-    # (ignoramos id_usuario aqui de propósito)
     # ------------------------------------------------
     if me_flag:
         filters = ["pp.id_usuario = %(id_usuario_part)s"]
@@ -401,7 +400,6 @@ def list_projetos():
 
     # ------------------------------------------------
     # Caso 2: me não informado ou false → lista padrão
-    # (aqui sim id_usuario filtra o DONO do projeto)
     # ------------------------------------------------
     else:
         filters = []
@@ -479,12 +477,13 @@ def list_projetos():
     if not rows:
         return jsonify(rows), 200
 
-    ids_projetos = [r["id_projeto"] for r in rows]
+    # lista de ids como string, para bater com jsonb->> (texto)
+    ids_projetos = [str(r["id_projeto"]) for r in rows]
 
     selos_rows = many(
         """
         SELECT
-            ps.id_projeto,
+            (ps.referencia->>'id_projeto')::uuid AS id_projeto,
             s.id_selo,
             s.titulo,
             s.slug,
@@ -497,7 +496,9 @@ def list_projetos():
         FROM usuarios_selos ps
         JOIN selos s
           ON s.id_selo = ps.id_selo
-        WHERE ps.id_projeto = ANY(%(ids)s)
+        WHERE ps.habilitado = TRUE
+          AND ps.referencia ? 'id_projeto'
+          AND ps.referencia->>'id_projeto' = ANY(%(ids)s)
         ORDER BY s.ordem ASC, s.titulo ASC
         """,
         {"ids": ids_projetos},
@@ -505,7 +506,7 @@ def list_projetos():
 
     selos_por_projeto = {}
     for s in selos_rows:
-        pid = s["id_projeto"]
+        pid = s["id_projeto"]  # uuid vindo do ::uuid
         selo_info = {
             "id_selo": s["id_selo"],
             "titulo": s["titulo"],

@@ -14,7 +14,7 @@ INSERT INTO usuarios (
     NULL,
     NULL,
     NULL,
-    '27 99999-1111',
+    '(27) 99999-1111',
     'enzo@enzo.com',
     NULL,
     'ADMIN',
@@ -32,7 +32,7 @@ INSERT INTO usuarios (
     NULL,
     NULL,
     NULL,
-    '27 99999-2222',
+    '(27) 99999-2222',
     'felipe.souza@ivc.br',
     NULL,
     'ADMIN',
@@ -50,7 +50,7 @@ INSERT INTO usuarios (
     NULL,
     NULL,
     NULL,
-    '27 99999-3333',
+    '(27) 99999-3333',
     'mariana.ribeiro@ivc.br',
     NULL,
     'PROFESSOR',
@@ -68,7 +68,7 @@ INSERT INTO usuarios (
     NULL,
     NULL,
     NULL,
-    '27 99999-4444',
+    '(27) 99999-4444',
     'lucas.almeida@aluno.ivc.br',
     NULL,
     'ALUNO',
@@ -76,6 +76,69 @@ INSERT INTO usuarios (
     TRUE,
     TRUE
 );
+
+-- -------------------------------------------------------
+-- LEVEL
+-- -------------------------------------------------------
+
+-- =====================================================
+-- ENZO (ADMIN)
+-- =====================================================
+UPDATE usuarios
+SET 
+    xp_total = 420,
+    id_level_atual = (
+        SELECT id_level 
+        FROM levels 
+        WHERE 420 BETWEEN xp_min AND xp_max
+        LIMIT 1
+    )
+WHERE email = 'enzo@enzo.com';
+
+
+-- =====================================================
+-- FELIPE (ADMIN)
+-- =====================================================
+UPDATE usuarios
+SET 
+    xp_total = 180,
+    id_level_atual = (
+        SELECT id_level 
+        FROM levels 
+        WHERE 180 BETWEEN xp_min AND xp_max
+        LIMIT 1
+    )
+WHERE email = 'felipe.souza@ivc.br';
+
+
+-- =====================================================
+-- MARIANA (PROFESSOR)
+-- =====================================================
+UPDATE usuarios
+SET 
+    xp_total = 600,
+    id_level_atual = (
+        SELECT id_level 
+        FROM levels 
+        WHERE 600 BETWEEN xp_min AND xp_max
+        LIMIT 1
+    )
+WHERE email = 'mariana.ribeiro@ivc.br';
+
+
+-- =====================================================
+-- LUCAS (ALUNO)
+-- =====================================================
+UPDATE usuarios
+SET 
+    xp_total = 75,
+    id_level_atual = (
+        SELECT id_level 
+        FROM levels 
+        WHERE 75 BETWEEN xp_min AND xp_max
+        LIMIT 1
+    )
+WHERE email = 'lucas.almeida@aluno.ivc.br';
 
 -- -------------------------------------------------------
 -- CURSOS
