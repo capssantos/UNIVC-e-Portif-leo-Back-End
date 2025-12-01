@@ -1674,7 +1674,7 @@ def listar_participantes_projeto(id_projeto):
             pp.id_usuario,
             u.nome       AS nome_usuario,
             u.email      AS email_usuario,
-            u.avatar_url AS avatar_usuario,
+            u.imagem AS avatar_usuario,
             pp.papel,
             pp.status,
             pp.mensagem,
