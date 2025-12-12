@@ -2,7 +2,7 @@ import os
 import uuid
 from flask import Blueprint, request, jsonify, g
 from dotenv import load_dotenv
-from ..models.db import one, run
+from ..models.db import one, run, many
 from ..models.crypto import hash_password, check_password
 from ..models.jwt_manager import create_token_pair, refresh_tokens, revoke_token
 from ..models.auth import require_auth
@@ -40,7 +40,6 @@ def _parse_date(value):
         raise ValueError("data_nascimento inválida; use 'YYYY-MM-DD'")
 
 # ---------- Usuários ----------
-
 @user_bp.post("/auth/register/step1")
 def register_step1():
     """
@@ -790,7 +789,7 @@ def get_me():
     Retorna os dados completos do usuário autenticado a partir do
     token JWT enviado no header Authorization.
 
-    ---
+    --- RESTO DO SWAGGER ---
     tags:
       - Users
     security:
@@ -813,6 +812,8 @@ def get_me():
               type: object
             level:
               type: array
+            selos:
+              type: array
       401:
         description: Usuário não autenticado
       404:
@@ -824,6 +825,7 @@ def get_me():
     user_id = g.user_id
     print(f"[ME    ] - USER_ID: {user_id}")
 
+    # Dados do usuário + level atual
     row = one(
         """
         SELECT
@@ -866,6 +868,26 @@ def get_me():
     if not row:
         return jsonify({"error": "usuário não encontrado"}), 404
 
+    # Busca os selos do usuário logado
+    selos_rows = many(
+        """
+        SELECT
+            us.id_usuario_selo,
+            us.id_usuario,
+            us.id_selo,
+            us.motivo,
+            us.origem,
+            us.referencia,
+            us.habilitado,
+            us.created_at,
+            us.updated_at
+        FROM usuarios_selos us
+        WHERE us.id_usuario = %(uid)s
+        ORDER BY us.created_at DESC
+        """,
+        {"uid": user_id}
+    )
+
     # Monta o objeto user (mantendo o formato atual)
     user = {
         "id_usuario":      row["id_usuario"],
@@ -889,7 +911,7 @@ def get_me():
         "id_level_atual":  row.get("id_level_atual"),
     }
 
-    # Monta o array level
+    # Monta o array level (se tiver level vinculado)
     level = []
     if row.get("id_level"):
         level.append({
@@ -902,8 +924,24 @@ def get_me():
             "descricao":  row["level_descricao"],
         })
 
+    # Monta o array de selos do usuário
+    selos = []
+    for s in selos_rows:
+        selos.append({
+            "id_usuario_selo": s["id_usuario_selo"],
+            "id_usuario":      s["id_usuario"],
+            "id_selo":         s["id_selo"],
+            "motivo":          s["motivo"],
+            "origem":          s["origem"],
+            "referencia":      s["referencia"],
+            "habilitado":      s["habilitado"],
+            "created_at":      s["created_at"],
+            "updated_at":      s["updated_at"],
+        })
+
     # Resposta final
     return jsonify({
-        "user": user,
-        "level": level
+        "user":  user,
+        "level": level,
+        "selos": selos,
     }), 200
